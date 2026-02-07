@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>HushType Updates</title>
+        <link>https://github.com/malcolmct/HushType</link>
+        <description>Most recent changes with links to updates for HushType.</description>
+        <language>en</language>
+        <!-- Release entries will be added here by generate_appcast -->
+    </channel>
+</rss>

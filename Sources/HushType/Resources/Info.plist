@@ -32,5 +32,11 @@
     <string>Copyright © 2026 Malcolm Taylor. All rights reserved.</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+
+    <!-- Sparkle auto-update configuration -->
+    <key>SUFeedURL</key>
+    <string>https://malcolmct.github.io/HushType/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>PLACEHOLDER_REPLACE_WITH_REAL_KEY</string>
 </dict>
 </plist>

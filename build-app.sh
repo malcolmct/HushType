@@ -86,6 +86,31 @@ else
     echo "  Run ./bundle-model.sh to include the small.en model in the app."
 fi
 
+# Embed Sparkle.framework from the SPM build artifacts
+echo "=== Checking for Sparkle framework ==="
+SPARKLE_FRAMEWORK=""
+# SPM downloads the XCFramework into .build/artifacts/ — find the macOS framework slice
+for candidate in \
+    "$SCRIPT_DIR/.build/artifacts/sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
+    "$SCRIPT_DIR/.build/artifacts/sparkle/Sparkle.xcframework/macos-arm64/Sparkle.framework" \
+    "$SCRIPT_DIR/.build/artifacts/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
+    "$SCRIPT_DIR/.build/artifacts/Sparkle.xcframework/macos-arm64/Sparkle.framework"; do
+    if [ -d "$candidate" ]; then
+        SPARKLE_FRAMEWORK="$candidate"
+        break
+    fi
+done
+
+if [ -n "$SPARKLE_FRAMEWORK" ]; then
+    mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+    ditto --norsrc "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+    echo "  Embedded: Sparkle.framework"
+else
+    echo "  Warning: Sparkle.framework not found in build artifacts."
+    echo "  Run 'swift package resolve' first, then check .build/artifacts/ for the framework path."
+    echo "  The app will build but auto-updates will not work."
+fi
+
 # Copy Info.plist from source (single source of truth)
 cp "$INFO_PLIST" "$APP_BUNDLE/Contents/Info.plist"
 

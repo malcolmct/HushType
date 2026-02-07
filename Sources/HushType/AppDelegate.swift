@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import Sparkle
 
 /// Main application delegate that manages the menu bar item, recording lifecycle,
 /// and coordinates all managers (audio, transcription, text injection, hotkey).
@@ -17,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var modelProgressWindow: ModelProgressWindow?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private var updaterController: SPUStandardUpdaterController?
 
     private var isRecording = false
     private var isTranscribing = false
@@ -41,6 +43,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Set up the menu bar
         setupStatusItem()
+
+        // Set up Sparkle auto-updater
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
 
         // Set up global hotkey (hold trigger key to record)
         hotkeyManager = HotkeyManager(
@@ -136,6 +145,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: "")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        checkUpdatesItem.target = updaterController
+        menu.addItem(checkUpdatesItem)
 
         menu.addItem(NSMenuItem.separator())
 
