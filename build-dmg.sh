@@ -27,7 +27,10 @@ DMG_NAME="$APP_NAME.dmg"
 DMG_PATH="$SCRIPT_DIR/$DMG_NAME"
 DMG_STAGING="$SCRIPT_DIR/.dmg-staging"
 VOLUME_NAME="$APP_NAME"
-ENTITLEMENTS="$SCRIPT_DIR/Sources/HushType/Resources/HushType.entitlements"
+# Use distribution entitlements (no App Sandbox) for Developer ID builds.
+# The sandbox entitlements in HushType.entitlements would block Sparkle's
+# installer and prevent CGEvent keystroke simulation.
+ENTITLEMENTS="$SCRIPT_DIR/Sources/HushType/Resources/HushType-distribution.entitlements"
 
 # Parse arguments
 SKIP_BUILD=false
