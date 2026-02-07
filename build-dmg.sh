@@ -76,7 +76,25 @@ if [ -n "$SIGN_IDENTITY" ]; then
     SIGN_BUNDLE="$SIGN_DIR/$APP_NAME.app"
     echo "  Copying to $SIGN_DIR (outside iCloud)…"
     ditto --norsrc --noextattr --noqtn "$APP_BUNDLE" "$SIGN_BUNDLE"
-    # Sign the bundle (this also signs the main executable with hardened runtime)
+
+    # Sign embedded frameworks first (inside-out signing order required for notarization)
+    if [ -d "$SIGN_BUNDLE/Contents/Frameworks/Sparkle.framework" ]; then
+        echo "  Signing Sparkle.framework..."
+        # Sign any XPC services inside Sparkle
+        find "$SIGN_BUNDLE/Contents/Frameworks/Sparkle.framework" -name "*.xpc" -type d | while read xpc; do
+            codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$xpc"
+        done
+        # Sign any helper executables inside Sparkle
+        find "$SIGN_BUNDLE/Contents/Frameworks/Sparkle.framework" -name "Autoupdate" -o -name "Updater" -o -name "Installer" | while read helper; do
+            if [ -f "$helper" ] && file "$helper" | grep -q "Mach-O"; then
+                codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$helper"
+            fi
+        done
+        # Sign the framework itself
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$SIGN_BUNDLE/Contents/Frameworks/Sparkle.framework"
+    fi
+
+    # Sign the main app bundle last (outermost)
     codesign --force --sign "$SIGN_IDENTITY" \
         --entitlements "$ENTITLEMENTS" \
         --options runtime \

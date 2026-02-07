@@ -2,6 +2,7 @@
 .build/
 HushType.app/
 HushType.dmg
+HushType-*.zip
 
 # Bundled ML models (too large for git — download or bundle separately)
 Sources/HushType/Resources/Models/
