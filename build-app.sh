@@ -89,26 +89,27 @@ fi
 # Embed Sparkle.framework from the SPM build artifacts
 echo "=== Checking for Sparkle framework ==="
 SPARKLE_FRAMEWORK=""
-# SPM downloads the XCFramework into .build/artifacts/ — find the macOS framework slice
-for candidate in \
-    "$SCRIPT_DIR/.build/artifacts/sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
-    "$SCRIPT_DIR/.build/artifacts/sparkle/Sparkle.xcframework/macos-arm64/Sparkle.framework" \
-    "$SCRIPT_DIR/.build/artifacts/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
-    "$SCRIPT_DIR/.build/artifacts/Sparkle.xcframework/macos-arm64/Sparkle.framework"; do
-    if [ -d "$candidate" ]; then
-        SPARKLE_FRAMEWORK="$candidate"
-        break
-    fi
-done
+# Try the known SPM artifact path first, then search broadly
+KNOWN_PATH="$SCRIPT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [ -d "$KNOWN_PATH" ]; then
+    SPARKLE_FRAMEWORK="$KNOWN_PATH"
+else
+    SPARKLE_FRAMEWORK=$(find "$SCRIPT_DIR/.build/artifacts" -name "Sparkle.framework" -path "*/macos*" -type d 2>/dev/null | head -1)
+fi
 
-if [ -n "$SPARKLE_FRAMEWORK" ]; then
+if [ -d "$SPARKLE_FRAMEWORK" ]; then
     mkdir -p "$APP_BUNDLE/Contents/Frameworks"
     ditto --norsrc "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
     echo "  Embedded: Sparkle.framework"
+
+    # Add rpath so the dynamic linker finds frameworks in Contents/Frameworks/
+    install_name_tool -add_rpath @executable_path/../Frameworks "$APP_BUNDLE/Contents/MacOS/$APP_NAME" 2>/dev/null || true
+    echo "  Added @executable_path/../Frameworks to rpath"
 else
-    echo "  Warning: Sparkle.framework not found in build artifacts."
-    echo "  Run 'swift package resolve' first, then check .build/artifacts/ for the framework path."
-    echo "  The app will build but auto-updates will not work."
+    echo "  ERROR: Sparkle.framework not found in build artifacts."
+    echo "  Searched: $SCRIPT_DIR/.build/artifacts/"
+    find "$SCRIPT_DIR/.build/artifacts" -name "Sparkle.framework" -type d 2>/dev/null || echo "  (no matches)"
+    echo "  Run 'swift package resolve' and rebuild."
 fi
 
 # Copy Info.plist from source (single source of truth)

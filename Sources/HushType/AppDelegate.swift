@@ -41,15 +41,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptionEngine = TranscriptionEngine()
         textInjector = TextInjector()
 
-        // Set up the menu bar
-        setupStatusItem()
-
-        // Set up Sparkle auto-updater
+        // Set up Sparkle auto-updater (before menu setup so the menu item can reference it)
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+
+        // Set up the menu bar
+        setupStatusItem()
 
         // Set up global hotkey (hold trigger key to record)
         hotkeyManager = HotkeyManager(
@@ -146,8 +146,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
-        checkUpdatesItem.target = updaterController
+        let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        checkUpdatesItem.target = self
         menu.addItem(checkUpdatesItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -526,5 +526,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         aboutWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func checkForUpdates() {
+        updaterController?.checkForUpdates(self)
     }
 }
