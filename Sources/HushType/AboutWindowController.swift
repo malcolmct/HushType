@@ -55,7 +55,9 @@ class AboutWindowController {
 
         // MARK: - Version
         let versionLabel = NSTextField(frame: NSRect(x: 20, y: y - 18, width: windowWidth - 40, height: 18))
-        versionLabel.stringValue = "Version 1.0"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        versionLabel.stringValue = "Version \(version) (\(build))"
         versionLabel.isEditable = false
         versionLabel.isBordered = false
         versionLabel.backgroundColor = .clear

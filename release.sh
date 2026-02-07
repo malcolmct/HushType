@@ -97,7 +97,9 @@ if [ -n "$GENERATE_APPCAST" ]; then
         cp "$SCRIPT_DIR/docs/appcast.xml" "$APPCAST_DIR/"
     fi
 
-    "$GENERATE_APPCAST" "$APPCAST_DIR"
+    # Point download URLs at GitHub Releases (not GitHub Pages)
+    DOWNLOAD_PREFIX="https://github.com/malcolmct/HushType/releases/download/v$VERSION/"
+    "$GENERATE_APPCAST" --download-url-prefix "$DOWNLOAD_PREFIX" "$APPCAST_DIR"
 
     cp "$APPCAST_DIR/appcast.xml" "$SCRIPT_DIR/docs/appcast.xml"
     rm -rf "$APPCAST_DIR"

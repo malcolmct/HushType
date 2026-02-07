@@ -12,7 +12,7 @@
             <sparkle:version>12</sparkle:version>
             <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://malcolmct.github.io/HushType/HushType-1.2.zip" length="448348967" type="application/octet-stream" sparkle:edSignature="slHTlX/n443LtLh4wedyhhEsG2kNJVbU6l4SdmsTBJaSHRMBtJU5Y4kxCLeKzAMVt+voBQSwRHseenHxkUo3Dw=="/>
+            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.2/HushType-1.2.zip" length="448348967" type="application/octet-stream" sparkle:edSignature="slHTlX/n443LtLh4wedyhhEsG2kNJVbU6l4SdmsTBJaSHRMBtJU5Y4kxCLeKzAMVt+voBQSwRHseenHxkUo3Dw=="/>
         </item>
         <item>
             <title>1.1</title>
@@ -20,7 +20,7 @@
             <sparkle:version>11</sparkle:version>
             <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://malcolmct.github.io/HushType/HushType-1.1.zip" length="448348725" type="application/octet-stream" sparkle:edSignature="0zcKB2KyPZM3DEMgojxubOma31M1fdWCKztYz/nCyx4aATZKL1ricyM37VqJBuFFm959jiHh6FhOMxTGMk8oBA=="/>
+            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.1/HushType-1.1.zip" length="448348725" type="application/octet-stream" sparkle:edSignature="0zcKB2KyPZM3DEMgojxubOma31M1fdWCKztYz/nCyx4aATZKL1ricyM37VqJBuFFm959jiHh6FhOMxTGMk8oBA=="/>
         </item>
     </channel>
 </rss>

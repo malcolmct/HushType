@@ -148,6 +148,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
         checkUpdatesItem.target = self
+        if let updateIcon = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Check for Updates") {
+            updateIcon.isTemplate = true
+            checkUpdatesItem.image = updateIcon
+        }
         menu.addItem(checkUpdatesItem)
 
         menu.addItem(NSMenuItem.separator())
