@@ -7,6 +7,14 @@
         <language>en</language>
         <!-- Release entries will be added here by generate_appcast -->
         <item>
+            <title>1.2</title>
+            <pubDate>Sat, 07 Feb 2026 18:23:56 -0500</pubDate>
+            <sparkle:version>12</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://malcolmct.github.io/HushType/HushType-1.2.zip" length="448348967" type="application/octet-stream" sparkle:edSignature="slHTlX/n443LtLh4wedyhhEsG2kNJVbU6l4SdmsTBJaSHRMBtJU5Y4kxCLeKzAMVt+voBQSwRHseenHxkUo3Dw=="/>
+        </item>
+        <item>
             <title>1.1</title>
             <pubDate>Sat, 07 Feb 2026 18:01:43 -0500</pubDate>
             <sparkle:version>11</sparkle:version>
