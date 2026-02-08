@@ -11,56 +11,66 @@ HushType is a macOS menu-bar dictation app that transcribes speech to text entir
 - **Permissions required:**
   - Microphone access (for audio capture)
   - Accessibility access (for injecting text into other apps via CGEvent)
+  - App Management (for Sparkle auto-updates to replace the app bundle)
 
 ## Tech Stack
 
 - **Language:** Swift 5.9
 - **Build system:** Swift Package Manager (not Xcode project)
 - **ML framework:** [WhisperKit](https://github.com/argmaxinc/WhisperKit) 0.9.0+ (CoreML-based Whisper inference)
-- **Dependencies:** WhisperKit (only external dependency, declared in `Package.swift`)
+- **Auto-update:** [Sparkle](https://github.com/sparkle-project/Sparkle) 2.0+ (EdDSA-signed updates)
+- **Dependencies:** WhisperKit and Sparkle (declared in `Package.swift`)
 - **Target platform:** macOS 14+ (`platforms: [.macOS(.v14)]`)
 - **App type:** Menu bar accessory app (`LSUIElement: true` — no dock icon)
 - **Bundle ID:** `net.hushtype.app`
+- **Repository:** https://github.com/malcolmct/HushType
 
 ## Project Structure
 
 ```
 HushType/
-├── Package.swift                          # SPM manifest
-├── Package.resolved                       # Dependency lockfile
+├── Package.swift                              # SPM manifest (WhisperKit + Sparkle)
+├── Package.resolved                           # Dependency lockfile
+├── .gitignore                                 # Excludes .build/, .app, .dmg, .zip, Models/, .DS_Store
 ├── Sources/HushType/
-│   ├── main.swift                         # Entry point: Apple Silicon check, app bootstrap
-│   ├── AppDelegate.swift                  # Central orchestrator: menu bar, recording lifecycle
-│   ├── RecordingOverlayWindow.swift       # Floating HUD showing recording state + audio levels
-│   ├── ModelProgressWindow.swift          # Floating HUD showing model download/load progress
-│   ├── SettingsWindowController.swift     # Settings window UI + SettingsActions handler
-│   ├── AboutWindowController.swift        # About window with copyright + license attribution
+│   ├── main.swift                             # Entry point: Apple Silicon check, app bootstrap
+│   ├── AppDelegate.swift                      # Central orchestrator: menu bar, recording, Sparkle
+│   ├── RecordingOverlayWindow.swift           # Floating HUD showing recording state + audio levels
+│   ├── ModelProgressWindow.swift              # Floating HUD showing model download/load progress
+│   ├── SettingsWindowController.swift         # Settings window UI (scrollable) + SettingsActions handler
+│   ├── AboutWindowController.swift            # About window with dynamic version + license attribution
 │   ├── Models/
-│   │   └── AppSettings.swift              # Singleton UserDefaults-backed settings + TriggerKey enum
+│   │   └── AppSettings.swift                  # Singleton UserDefaults settings + TriggerKey + MenuBarIconStyle enums
 │   ├── Managers/
-│   │   ├── AudioManager.swift             # AVAudioEngine mic capture → 16kHz mono Float32
-│   │   ├── TranscriptionEngine.swift      # WhisperKit model loading + transcription
-│   │   ├── TextInjector.swift             # CGEvent text injection (paste or keystrokes)
-│   │   ├── HotkeyManager.swift            # Configurable modifier key detection via NSEvent monitors
-│   │   └── PermissionManager.swift        # Mic + Accessibility permission management
+│   │   ├── AudioManager.swift                 # AVAudioEngine mic capture → 16kHz mono Float32
+│   │   ├── TranscriptionEngine.swift          # WhisperKit model loading + transcription
+│   │   ├── TextInjector.swift                 # CGEvent text injection (paste or keystrokes)
+│   │   ├── HotkeyManager.swift                # Configurable modifier key detection via NSEvent monitors
+│   │   └── PermissionManager.swift            # Mic + Accessibility permission + post-update re-auth
 │   └── Resources/
-│       ├── Info.plist                      # App metadata + permission usage descriptions
-│       ├── HushType.entitlements           # Sandbox entitlements (sandbox, audio-input, network)
-│       ├── AppIcon.icns                    # App icon
+│       ├── Info.plist                          # App metadata, permission descriptions, Sparkle keys
+│       ├── HushType.entitlements               # Sandbox entitlements (for App Store builds only)
+│       ├── AppIcon.icns                        # App icon
+│       ├── menubar-icon.png / @2x.png         # Custom menu bar icon (idle state)
+│       ├── menubar-icon-recording.png / @2x.png # Custom menu bar icon (recording state, bolder)
 │       └── Models/
-│           └── openai_whisper-small.en/    # Bundled WhisperKit CoreML model
+│           └── openai_whisper-small.en/        # Bundled WhisperKit CoreML model
 │               ├── AudioEncoder.mlmodelc/
 │               ├── TextDecoder.mlmodelc/
 │               ├── MelSpectrogram.mlmodelc/
 │               ├── config.json
 │               └── generation_config.json
-├── build-app.sh                           # Builds release binary + creates .app bundle
-├── build-dmg.sh                           # Packages .app into .dmg for direct distribution
-├── bundle-model.sh                        # Copies cached model into Resources for bundling
-├── create-icns.py                         # Generates AppIcon.icns from SVG
-├── icon-design.svg                        # Source icon design
-├── HushType.app/                          # Built app bundle (output of build-app.sh)
-└── HushType.dmg                           # DMG disk image (output of build-dmg.sh)
+├── docs/
+│   └── appcast.xml                            # Sparkle appcast (served via GitHub Pages)
+├── HushType-distribution.entitlements         # Distribution entitlements (no sandbox, microphone only)
+├── build-app.sh                               # Builds release binary + creates .app bundle
+├── dmg-background.png                         # DMG background image (1320×880 @2x Retina)
+├── create-guide.js                            # Generates HushType-User-Guide.docx (Node.js + docx-js)
+├── build-dmg.sh                               # Packages .app into signed .dmg for distribution
+├── release.sh                                 # Full release automation (build → sign → notarise → publish)
+├── bundle-model.sh                            # Copies cached model into Resources for bundling
+├── create-icns.py                             # Generates AppIcon.icns from SVG
+└── icon-design.svg                            # Source icon design
 ```
 
 ## Architecture
@@ -74,25 +84,44 @@ Trigger key press (configurable: Fn, Control, or Option) → start recording
 AudioManager captures mic → resamples to 16kHz mono Float32
     │                        (AVAudioEngine + AVAudioConverter)
     │
-Trigger key release → stop recording
+    ├── [Standard mode] ──────────────────────────────────────────────
+    │   Trigger key release → stop recording
+    │       │
+    │       ▼
+    │   Validate audio:
+    │       - Duration ≥ 0.3s (debounce key bounce)
+    │       - Sample count ≥ 8000 (~0.5s at 16kHz)
+    │       - RMS level > 0.001 (not silent)
+    │       │
+    │       ▼
+    │   TranscriptionEngine.transcribe(samples)
+    │       │  WhisperKit inference with tuned DecodingOptions
+    │       │  Uses last result from temperature fallback iterations
+    │       │
+    │       ▼
+    │   TextInjector.injectText(text)
+    │       ├─ Paste mode (default): clipboard save → copy text → Cmd+V → restore clipboard
+    │       └─ Keystroke mode: per-character CGEvent keystrokes using US keycode map
     │
-    ▼
-Validate audio:
-    - Duration ≥ 0.3s (debounce key bounce)
-    - Sample count ≥ 8000 (~0.5s at 16kHz)
-    - RMS level > 0.001 (not silent)
-    │
-    ▼
-TranscriptionEngine.transcribe(samples)
-    │  WhisperKit inference with tuned DecodingOptions
-    │  Uses last result from temperature fallback iterations
-    │
-    ▼
-TextInjector.injectText(text)
-    ├─ Paste mode (default): clipboard save → copy text → Cmd+V → restore clipboard
-    └─ Keystroke mode: per-character CGEvent keystrokes using US keycode map
-    │
-    ▼
+    └── [Real-time mode] (when useRealtimeTranscription is on) ─────
+        Every 2 seconds while recording:
+            │
+            ▼
+        AudioManager.getCurrentSamples() → snapshot buffer (non-destructive)
+            │
+            ▼
+        TranscriptionEngine.transcribe(snapshot)
+            │  Skip if < 16000 samples (~1s) or previous tick still running
+            │
+            ▼
+        TextInjector.injectIncremental(replacing: oldText, with: newText)
+            │  Computes diff: common prefix → backspace divergent chars → type new suffix
+            │  Also updates RecordingOverlayWindow with transcription preview
+            │
+        Trigger key release → stop timer → final transcription of complete audio
+            │  Applies final incremental correction (backspace + retype)
+            │
+            ▼
 If no Accessibility permission → falls back to copying text to clipboard
 ```
 
@@ -100,11 +129,11 @@ If no Accessibility permission → falls back to copying text to clipboard
 
 **`main.swift`** — Entry point. Checks for Apple Silicon via `uname()`. Sets activation policy to `.accessory` (menu bar only). Creates `AppDelegate` and runs the app.
 
-**`AppDelegate`** — Central orchestrator. Owns all managers. Sets up the NSStatusItem menu bar with items: status text (tag 1), model info (tag 2), Settings, About, Quit. Coordinates the recording lifecycle: `startRecording()` → `stopRecordingAndTranscribe()`. Manages UI state for overlay, progress window, and menu bar icon (mic/mic.fill with red tint). Listens for `.modelDidChange` and `.triggerKeyDidChange` notifications. On trigger key change, restarts the HotkeyManager and updates all UI text dynamically. Loads the Whisper model asynchronously on launch.
+**`AppDelegate`** — Central orchestrator. Owns all managers and the Sparkle updater controller. Sets up the NSStatusItem menu bar with items: status text (tag 1), model info (tag 2), Settings, Check for Updates, About (with custom icon), and Quit (no keyboard shortcuts — inappropriate for a background app). Coordinates the recording lifecycle: `startRecording()` → `stopRecordingAndTranscribe()`. Manages UI state for overlay, progress window, and menu bar icon (system SF Symbol or custom branded icon, with red tint when recording). Listens for `.modelDidChange`, `.triggerKeyDidChange`, and `.menuBarIconDidChange` notifications. Loads the Whisper model asynchronously on launch and re-checks accessibility once loading completes.
 
 **`HotkeyManager`** — Detects the configured trigger key hold/release via `NSEvent.addGlobalMonitorForEvents` and `addLocalMonitorForEvents` for `.flagsChanged`. Reads `AppSettings.shared.triggerKey` on each event to determine which modifier to detect. Dynamically builds an exclusion set of all other modifiers so the trigger key must be pressed alone. Deduplicates events between global and local monitors using timestamp comparison. Dispatches `onKeyDown`/`onKeyUp` callbacks to main thread. Call `restartListening()` after changing the trigger key setting.
 
-**`AudioManager`** — Captures audio via `AVAudioEngine`. Installs a tap on the input node with 4096 buffer size in the mic's native format. Uses `AVAudioConverter` to resample to 16kHz mono Float32 (WhisperKit's required format). Accumulates samples in a thread-safe buffer (protected by `bufferQueue` dispatch queue). Calculates RMS audio level (normalized to 0–1 by multiplying by 3.0) and reports via `onAudioLevel` callback. Provides `availableInputDevices` via AVCaptureDevice discovery.
+**`AudioManager`** — Captures audio via `AVAudioEngine`. Installs a tap on the input node with 4096 buffer size in the mic's native format. Uses `AVAudioConverter` to resample to 16kHz mono Float32 (WhisperKit's required format). Accumulates samples in a thread-safe buffer (protected by `bufferQueue` dispatch queue). Calculates RMS audio level (normalized to 0–1 by multiplying by 3.0) and reports via `onAudioLevel` callback. Provides `availableInputDevices` via AVCaptureDevice discovery. `getCurrentSamples()` returns a non-destructive snapshot of the buffer for real-time transcription without stopping recording.
 
 **`TranscriptionEngine`** — Manages WhisperKit model lifecycle and transcription. Model resolution follows a priority chain:
 
@@ -125,6 +154,14 @@ Transcription uses `DecodingOptions` tuned for accuracy:
 
 Also defines `supportedLanguages`: a static list of 30 languages (code + display name) used by the Settings UI language picker.
 
+Post-processing: `removeRepeatedPhrases(_:)` runs on every transcription result to clean up Whisper decoder loops. Four passes:
+1. **Sentence dedup** — removes consecutive duplicate sentences (case-insensitive)
+2. **Substring pattern** — detects a phrase repeated 3+ times from the start of the text; collapses to one copy plus any unique tail
+3. **Trailing echo** — detects when a trailing sequence of words echoes the tail of the preceding text (e.g. "...it performs in the long run. It performs in the long run." → removes the trailing echo). Uses word-level comparison (case-insensitive, punctuation stripped per word) so it works regardless of how Whisper punctuates the echo boundary — period, comma, or nothing. Requires ≥3 matching words to avoid false positives. This targets a common Whisper artefact in real-time mode where chunk boundaries cause the decoder to repeat the end of the previous chunk.
+4. **Mid-sentence stutter** — detects when a partial phrase before a comma restarts in more complete form after the comma (e.g. "...but it goes ba, but it goes back..." → "...but it goes back..."). Compares the last N words before each comma with the first N words after it; requires ≥3 overlapping words, and the last pre-comma word may be a truncated prefix of the post-comma word (e.g. "ba" → "back").
+
+Helper methods: `splitIntoSentences(_:)` splits on `.!?` boundaries keeping delimiters attached; `removeTrailingEcho(_:)` performs the Pass 3 word-level echo check; `removeMidSentenceStutters(_:)` performs the Pass 4 comma-boundary overlap check.
+
 Posts `Notification.Name.modelDidChange` when a model finishes loading.
 
 **`TextInjector`** — Two injection modes:
@@ -134,9 +171,17 @@ Posts `Notification.Name.modelDidChange` when a model finishes loading.
 
 Both modes use `CGEventSource(stateID: .hidSystemState)` and post to `.cghidEventTap`.
 
-**`PermissionManager`** — Checks `AVCaptureDevice.authorizationStatus(.audio)` for microphone. Checks `AXIsProcessTrusted()` for accessibility. Prompts via `AXIsProcessTrustedWithOptions` (accessibility) or `AVCaptureDevice.requestAccess` (microphone). Shows alert dialog with link to System Settings if denied.
+A third mode — **incremental injection** — is used by real-time transcription. `injectIncremental(replacing:with:)` computes the longest common prefix between the old and new text, sends backspace keystrokes to delete the divergent tail, then types the new suffix. This always uses CGEvent keystrokes (not clipboard paste) for character-level control.
 
-**`AppSettings`** — Singleton backed by `UserDefaults.standard`. Also defines the `TriggerKey` enum (`fn`, `control`, `option`) with properties for `modifierFlag`, `displayName`, and `shortName`. Shift and Command are excluded because they conflict heavily with system and app shortcuts. The `startAtLogin` property is NOT stored in UserDefaults — it uses `SMAppService.mainApp` (ServiceManagement framework) as its source of truth, which integrates directly with System Settings > Login Items. Settings:
+**`PermissionManager`** — Checks `AVCaptureDevice.authorizationStatus(.audio)` for microphone. Checks `AXIsProcessTrusted()` for accessibility. Two distinct accessibility dialogs:
+- **First-time**: Instructions to add HushType to the Accessibility list
+- **Post-update**: Detects version change via `UserDefaults` tracking (`LastAccessibilityGrantedVersion`) and shows instructions to remove and re-add the entry, explaining this is required by macOS after code changes
+
+Both dialogs include an "Open Settings" button that navigates directly to the Accessibility pane (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`). Records the current version when accessibility is confirmed granted. Also re-checks accessibility after the model finishes loading via `recheckAccessibility()`.
+
+Also handles **App Management** permission: on first launch, if the app is installed in `/Applications`, it triggers the native macOS App Management consent dialog by attempting a harmless write inside the app bundle (`Contents/.permission_check`). On macOS 13+, writing to an app bundle in `/Applications` requires App Management permission — macOS intercepts the write and shows its own system dialog asking the user to grant it. If the user grants permission, the temporary file is created and immediately deleted; if they deny, the write fails harmlessly. This is much better UX than directing users to manually locate App Management in System Settings (there is no deep-link URL scheme for that pane). If the native dialog doesn't appear for any reason, the code falls back to manual instructions. This must happen before the first Sparkle update — otherwise Sparkle's installer helper is blocked by macOS and the update fails on the first attempt. The prompt is tracked via `UserDefaults` (`AppManagementPermissionPrompted`) so it only fires once.
+
+**`AppSettings`** — Singleton backed by `UserDefaults.standard`. Also defines the `TriggerKey` enum (`fn`, `control`, `option`) and the `MenuBarIconStyle` enum (`system`, `custom`). Shift and Command are excluded from trigger keys because they conflict heavily with system and app shortcuts. The `startAtLogin` property is NOT stored in UserDefaults — it uses `SMAppService.mainApp` (ServiceManagement framework) as its source of truth, which integrates directly with System Settings > Login Items. Settings:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -146,24 +191,62 @@ Both modes use `CGEventSource(stateID: .hidSystemState)` and post to `.cghidEven
 | `audioInputDeviceID` | `String?` | `nil` (system default) | Selected microphone device ID |
 | `showOverlay` | `Bool` | `true` | Show floating recording overlay |
 | `language` | `String?` | `nil` (auto-detect) | Transcription language |
+| `useRealtimeTranscription` | `Bool` | `true` | Real-time mode: transcribe and type while still recording |
+| `menuBarIconStyle` | `MenuBarIconStyle` | `.custom` | Menu bar icon appearance (posts `.menuBarIconDidChange` on set) |
 | `startAtLogin` | `Bool` | `false` | Register/unregister via SMAppService (not in UserDefaults) |
 
-**`RecordingOverlayWindow`** — Non-activating `NSPanel` (200x44 px) positioned at top-center of screen. HUD style with black 85% opacity background, corner radius 10. Shows status text ("Recording…" / "Transcribing…") and a green level bar. Uses `.nonactivatingPanel` + `.hudWindow` + `.utilityWindow` style mask. Collection behavior: `.canJoinAllSpaces`, `.stationary`.
+**`RecordingOverlayWindow`** — Non-activating `NSPanel` (200x44 px, expanding to 400x72 in real-time mode) positioned at top-center of screen. HUD style with black 85% opacity background, corner radius 10. Shows status text ("Recording…" / "Transcribing…" / "Recording (real-time)…") and a green level bar. In real-time mode, also shows a transcription preview label with the current partial text. Uses `.nonactivatingPanel` + `.hudWindow` + `.utilityWindow` style mask. Collection behavior: `.canJoinAllSpaces`, `.stationary`.
 
 **`ModelProgressWindow`** — Non-activating `NSPanel` (360x120 px) centered on screen. Shows title, progress bar (`NSProgressIndicator`), percentage, and status text. Only appears when downloading (bundled/cached models skip it). Created lazily on first progress callback.
 
-**`SettingsWindowController`** — Static factory (`createWindow()`) building a 460x740 settings window with sections:
+**`SettingsWindowController`** — Static factory (`createWindow()`) building a 460-wide settings window wrapped in an `NSScrollView` for small-screen support (auto-hiding scrollers, min height 400, resizable vertically). Uses an empty `NSToolbar` with `.unifiedCompact` style to center the window title. Always scrolls to the top of the form when opened. Sections:
 - **General**: "Start HushType at login" checkbox (uses SMAppService, re-reads actual state after toggle in case registration fails)
-- **Activation**: Dropdown (`NSPopUpButton`) to select the trigger key from all `TriggerKey` cases
+- **Activation**: Dropdown (`NSPopUpButton`) to select the trigger key from all `TriggerKey` cases; checkbox for "Real-time transcription" (type text while speaking instead of on key release)
 - **Whisper Model**: Current model display, advanced checkbox revealing model picker dropdown (tag 101) and hint (tag 102)
 - **Language**: Dropdown populated from `TranscriptionEngine.supportedLanguages` (30 languages + auto-detect). When a non-English language is selected and the current model has an `.en` suffix, the handler auto-switches to the multilingual equivalent (e.g. `small.en` → `small`) and triggers a model reload.
 - **Text Injection**: Radio buttons for paste (tag 1) vs keystrokes (tag 2)
 - **Audio Input**: Dropdown of available microphone devices
-- **Display**: Checkbox for recording overlay
+- **Display**: Checkbox for recording overlay, popup for menu bar icon style (system SF Symbol or custom HushType icon)
 
-`SettingsActions` (singleton `NSObject` subclass) handles UI callbacks including `triggerKeyChanged(_:)`, `languageChanged(_:)`, `startAtLoginToggled(_:)`, and triggers model reloading in `TranscriptionEngine`.
+`SettingsActions` (singleton `NSObject` subclass) handles UI callbacks including `triggerKeyChanged(_:)`, `languageChanged(_:)`, `startAtLoginToggled(_:)`, `menuBarIconStyleChanged(_:)`, and triggers model reloading in `TranscriptionEngine`.
 
-**`AboutWindowController`** — Static factory (`createWindow()`) building a 360x400 About window displaying the app icon, name, version, a brief description, copyright notice (© 2026 Malcolm Taylor), and a scrollable open-source acknowledgements section with full MIT license text for both WhisperKit (Argmax, Inc.) and OpenAI Whisper.
+**`AboutWindowController`** — Static factory (`createWindow()`) building a 360x400 About window displaying the app icon, name, **dynamic version and build number** (read from `Bundle.main` `CFBundleShortVersionString` and `CFBundleVersion` at runtime), a brief description, copyright notice (© 2026 Malcolm Taylor), and a scrollable open-source acknowledgements section with full MIT license text for both WhisperKit (Argmax, Inc.) and OpenAI Whisper.
+
+## Menu Bar Icon
+
+HushType offers two menu bar icon styles (configurable in Settings > Display):
+
+- **System**: Apple SF Symbol (`mic` / `mic.fill` when recording)
+- **Custom** (default): Branded icon designed to resemble a modified microphone with wave/whisper motifs, distinguishable from Apple's official mic icon
+
+Custom icons are template images (black on transparent, `isTemplate = true`) at 18×18 @1x and 36×36 @2x. The recording variants have thicker lines (processed via Pillow `MaxFilter` dilation). Icons are loaded from the app bundle's Resources directory, falling back to SF Symbols if not found. The menu bar icon tints red when recording.
+
+The About menu item also displays a small version of the custom icon.
+
+## Sparkle Auto-Update
+
+HushType uses Sparkle 2 for in-app software updates, distributed as a binary XCFramework via SPM.
+
+### Configuration
+
+- **Feed URL**: `https://malcolmct.github.io/HushType/appcast.xml` (served via GitHub Pages from the `docs/` folder on the `main` branch)
+- **Public EdDSA key**: Stored in `Info.plist` as `SUPublicEDKey` — `VCp3VRnO850+dcTwfhLh5JjgP6yBTUmz9YaHa9eFJ1A=`
+- **Private key**: Stored in the developer's Keychain (generated by Sparkle's `generate_keys`)
+- **Update ZIPs**: Hosted on GitHub Releases (not GitHub Pages) — download URLs use `https://github.com/malcolmct/HushType/releases/download/v{VERSION}/HushType-{VERSION}.zip`
+
+### Integration
+
+- `SPUStandardUpdaterController` is initialized in `AppDelegate.applicationDidFinishLaunching` **before** `setupStatusItem()` (so the menu item can reference it)
+- "Check for Updates…" menu item routes through `AppDelegate.checkForUpdates()` wrapper (direct `#selector` targeting of `SPUStandardUpdaterController` doesn't work with NSMenu validation)
+- Sparkle.framework is embedded at `Contents/Frameworks/Sparkle.framework` by `build-app.sh`, with `@executable_path/../Frameworks` rpath added via `install_name_tool`
+
+### Code Signing for Sparkle
+
+Sparkle's internal helpers (XPC services, Autoupdate, Updater, Installer executables) must be signed **inside-out** before the main app bundle. Both `build-dmg.sh` (when `--sign` is passed) and `release.sh` handle this:
+1. Sign XPC services (`*.xpc` bundles)
+2. Sign helper Mach-O executables (Autoupdate, Updater, Installer)
+3. Sign `Sparkle.framework` itself
+4. Sign the main app bundle last
 
 ## Available Whisper Models
 
@@ -210,10 +293,12 @@ The build script:
 2. Creates `.app` bundle structure under `HushType.app/Contents/`
 3. Copies binary to `Contents/MacOS/`
 4. Copies `AppIcon.icns` to `Contents/Resources/`
-5. Copies bundled models to `Contents/Resources/Models/`
-6. Copies `Info.plist` from `Sources/HushType/Resources/Info.plist` (single source of truth)
-7. Creates `PkgInfo`
-8. Code-signs the bundle (ad-hoc by default, with entitlements if `--sandbox` flag is passed)
+5. Copies custom menu bar icon PNGs to `Contents/Resources/`
+6. Copies bundled models to `Contents/Resources/Models/`
+7. Embeds `Sparkle.framework` into `Contents/Frameworks/` (from SPM build artifacts) and adds rpath
+8. Copies `Info.plist` from `Sources/HushType/Resources/Info.plist` (single source of truth)
+9. Creates `PkgInfo`
+10. Code-signs the bundle in `/tmp` (to avoid iCloud extended attribute interference)
 
 ### Bundling a Model
 
@@ -232,88 +317,22 @@ python3 create-icns.py
 
 Converts `icon-design.svg` into `Sources/HushType/Resources/AppIcon.icns`.
 
-## Key Design Decisions
-
-- **Configurable trigger key**: The user can choose Fn, Control, or Option as the push-to-talk trigger. Fn is the default because it's universally available on Mac keyboards and rarely conflicts with other shortcuts. Shift and Command are deliberately excluded — Shift is held constantly while typing capitals, and Command is used by virtually every keyboard shortcut. The trigger key is detected alone — if other modifiers are held simultaneously, the press is ignored to avoid false triggers from key combos.
-- **Paste mode default**: Clipboard-based injection is the most reliable method — it handles all Unicode, punctuation, and special characters. Keystroke simulation is US-layout-dependent and may miss symbols.
-- **Bundled model priority**: The app checks for a bundled model first (instant load), then cached (no network), then downloads as last resort, providing the fastest possible first-launch experience.
-- **Non-activating windows**: Both the recording overlay and progress window use `NSPanel` with `.nonactivatingPanel` to avoid stealing focus from the user's active application.
-- **SPM-only (no Xcode project)**: The project uses Swift Package Manager exclusively. The `.app` bundle is created by `build-app.sh` rather than Xcode's build system. This means `Bundle.main.resourcePath` doesn't work as expected — the code derives paths from the executable's filesystem location instead.
-- **Apple Silicon only**: WhisperKit requires CoreML/Neural Engine for performant on-device inference. Intel Macs are explicitly unsupported.
-- **Minimum recording guards**: Recordings under 0.3 seconds are discarded (key bounce), samples under 8000 (~0.5s) are skipped, and near-silent audio (RMS < 0.001) is ignored.
-
-## Notifications
-
-| Name | Posted By | Description |
-|------|-----------|-------------|
-| `.modelDidChange` | `TranscriptionEngine` | Fired when a model finishes loading (success or fallback) |
-| `.triggerKeyDidChange` | `AppSettings.triggerKey` setter | Fired when the user changes the trigger key in Settings |
-
-## Error Types
-
-**`TranscriptionError`** (in `TranscriptionEngine.swift`):
-- `.modelNotLoaded` — Whisper model not initialized
-- `.noAudioData` — Empty sample array passed to transcribe
-
-**`AudioManagerError`** (in `AudioManager.swift`):
-- `.formatCreationFailed` — Could not create 16kHz audio format
-- `.converterCreationFailed` — Could not create AVAudioConverter
-
-## Entitlements
-
-| Key | Description |
-|-----|-------------|
-| `com.apple.security.app-sandbox` | App Sandbox (required for Mac App Store) |
-| `com.apple.security.device.audio-input` | Microphone access for speech recording |
-| `com.apple.security.network.client` | Outbound network for downloading Whisper models from HuggingFace |
-
-## Distribution (Mac App Store)
-
-### Requirements
-
-- Apple Developer Program membership ($99/year)
-- App ID and provisioning profile configured in App Store Connect
-- Bundle identifier: `net.hushtype.app`
-
-### Sandbox Considerations
-
-The App Sandbox restricts filesystem access to the app's container. Key adaptations:
-- **Model cache**: `TranscriptionEngine.cachedModelPath()` checks the app container's Caches and Application Support directories first, then falls back to standard HuggingFace cache paths (the latter are only reachable in non-sandboxed development builds).
-- **Bundled models**: Still accessible read-only from `.app/Contents/Resources/Models/`.
-- **WhisperKit downloads**: In a sandbox, HuggingFace Hub resolves to the app container automatically.
-- **Accessibility**: Sandboxed apps can request accessibility permissions via the normal TCC prompt — the user grants it in System Settings > Privacy & Security > Accessibility.
-- **Microphone and network**: Declared via entitlements; macOS prompts the user as needed.
-
-### Build and Submit
-
-```bash
-# 1. Build with sandbox entitlements
-./build-app.sh --sandbox
-
-# 2. Re-sign with your Developer ID
-codesign --force --sign "Developer ID Application: Your Name (TEAMID)" \
-    --entitlements Sources/HushType/Resources/HushType.entitlements \
-    --options runtime HushType.app
-
-# 3. Upload via Transporter or altool
-xcrun altool --upload-app -f HushType.app -t macos
-```
-
-### Info.plist (App Store fields)
-
-The source `Info.plist` includes all fields required by App Store Connect: `CFBundleDisplayName`, `CFBundleExecutable`, `CFBundlePackageType`, `LSMinimumSystemVersion`, `NSPrincipalClass`, `NSHumanReadableCopyright`, and `ITSAppUsesNonExemptEncryption: false` (the app does not use custom encryption).
-
 ## Distribution (Direct / Outside App Store)
 
-For distributing outside the Mac App Store, the app is packaged as a `.dmg` disk image. The user opens the DMG, drags HushType into the Applications folder alias, and runs it from there.
+HushType is distributed outside the Mac App Store because the sandbox restricts `NSEvent.addGlobalMonitorForEvents` and `CGEvent` keystroke simulation, which are essential for the app's push-to-talk and text injection features.
 
-### Requirements
+### Entitlements
 
-- Apple Developer Program membership ($99/year) — same as App Store
-- Developer ID Application certificate (for signing)
-- App-specific password for notarization (generated at appleid.apple.com)
+Two entitlements files exist for different purposes:
 
-### Build and Distribute
+| File | Contains Sandbox? | Used By | Purpose |
+|------|-------------------|---------|---------|
+| `HushType.entitlements` | Yes | `build-app.sh --sandbox` | App Store builds (not currently viable) |
+| `HushType-distribution.entitlements` | No | `build-dmg.sh`, `release.sh` | Developer ID distribution |
+
+The distribution entitlements contain only `com.apple.security.device.audio-input` (microphone access for hardened runtime). No sandbox, no network entitlement needed (network is unrestricted outside the sandbox).
+
+### Build DMG
 
 ```bash
 # Build app and create DMG (ad-hoc signed, for local testing)
@@ -326,29 +345,102 @@ For distributing outside the Mac App Store, the app is packaged as a `.dmg` disk
 ./build-dmg.sh --skip-build
 ```
 
-After signing, notarize and staple:
+The DMG includes a branded Finder layout (AppleScript-configured) with the app, an Applications alias for drag-to-install, and the User Guide (PDF preferred, docx fallback). A custom background image (`dmg-background.png`, 1320×880 @2x Retina) is stored in a hidden `.background` directory inside the DMG and shows a dashed arrow between the app and Applications icons, with "Drag to Applications to install" text. The 660×440 window layout positions HushType.app at (140, 185), Applications at (520, 185), and the User Guide at (330, 345). The `release.sh` script converts the docx to PDF using LibreOffice (`soffice --headless`) or pandoc before building the DMG.
+
+### Release Workflow
+
+The `release.sh` script automates the full release pipeline:
 
 ```bash
-# Submit for notarization (required to avoid Gatekeeper warnings)
-xcrun notarytool submit HushType.dmg \
-    --apple-id YOUR_APPLE_ID \
-    --team-id YOUR_TEAM_ID \
-    --password YOUR_APP_SPECIFIC_PASSWORD \
-    --wait
-
-# Staple the notarization ticket to the DMG
-xcrun stapler staple HushType.dmg
+./release.sh 1.9
 ```
 
-The stapled DMG can be distributed from a website, GitHub releases, or any download host. macOS will verify the notarization on first launch and allow the app to run without warnings.
+Steps:
+1. **Pre-flight check** — warns if there are uncommitted changes (prompts to continue or abort)
+2. **Update version** — sets `CFBundleShortVersionString` and `CFBundleVersion` in Info.plist
+3. **Build** — runs `build-app.sh` to compile and create the .app bundle
+4. **Sign** — Developer ID signing with inside-out Sparkle framework signing
+5. **Create DMG** — packages the signed app via `build-dmg.sh --skip-build`, then signs the DMG
+6. **Notarise** — submits the DMG to Apple via `xcrun notarytool` (notarises all binaries inside)
+7. **Staple** — staples notarisation tickets to both the `.app` bundle and the `.dmg`
+8. **Create Sparkle ZIP** — `ditto` ZIP of the stapled app (notarisation ticket included)
+9. **Generate appcast** — runs `generate_appcast` with `--download-url-prefix` pointing to GitHub Releases
+10. **GitHub Release** — creates release via `gh release create` with DMG and ZIP attached
+11. **Commit & push** — commits updated `appcast.xml` and `Info.plist`, pushes to `main`
 
-### Differences from App Store Build
+Prerequisites:
+- `gh` CLI installed and authenticated
+- Developer ID certificate in Keychain
+- Sparkle EdDSA private key in Keychain
+- Notarytool credentials stored: `xcrun notarytool store-credentials "HushType"`
 
-The direct distribution build does NOT use the App Sandbox by default (the `--sandbox` flag is only applied by `build-app.sh`). This means the app has full access to the filesystem and does not need sandbox container paths for model storage. The same codebase works for both — `TranscriptionEngine.cachedModelPath()` checks sandbox container paths first, then falls back to standard paths.
+Hardcoded values in release.sh:
+- `SIGN_IDENTITY="Developer ID Application: Malcolm Taylor (98MYPLP7G2)"`
+- Download URL prefix: `https://github.com/malcolmct/HushType/releases/download/v{VERSION}/`
+
+### Update Distribution Architecture
+
+```
+GitHub Pages (docs/ on main branch)
+  └── appcast.xml ← Sparkle checks this for updates
+
+GitHub Releases (per version tag)
+  ├── HushType-{VERSION}.zip ← Sparkle downloads this
+  └── HushType.dmg ← Users download this for first install
+
+Sparkle flow:
+  App launch → fetch appcast.xml → compare versions →
+  download ZIP from GitHub Releases → extract → install → relaunch
+```
+
+**Important**: The GitHub repository must be **public** for GitHub Pages to serve the appcast and for GitHub Releases download URLs to be accessible.
+
+## Notifications
+
+| Name | Posted By | Description |
+|------|-----------|-------------|
+| `.modelDidChange` | `TranscriptionEngine` | Fired when a model finishes loading (success or fallback) |
+| `.triggerKeyDidChange` | `AppSettings.triggerKey` setter | Fired when the user changes the trigger key in Settings |
+| `.menuBarIconDidChange` | `AppSettings.menuBarIconStyle` setter | Fired when the user changes the icon style in Settings |
+
+## Error Types
+
+**`TranscriptionError`** (in `TranscriptionEngine.swift`):
+- `.modelNotLoaded` — Whisper model not initialized
+- `.noAudioData` — Empty sample array passed to transcribe
+
+**`AudioManagerError`** (in `AudioManager.swift`):
+- `.formatCreationFailed` — Could not create 16kHz audio format
+- `.converterCreationFailed` — Could not create AVAudioConverter
 
 ## Login Item (Start at Login)
 
 Uses `SMAppService.mainApp` from the ServiceManagement framework (macOS 13+). The toggle is in Settings > General. When enabled, the app registers as a login item that appears in System Settings > General > Login Items, where the user can also toggle it independently. The `startAtLogin` property on `AppSettings` reads directly from `SMAppService.mainApp.status` — it is not stored in UserDefaults.
+
+## Key Design Decisions
+
+- **Configurable trigger key**: The user can choose Fn, Control, or Option as the push-to-talk trigger. Fn is the default because it's universally available on Mac keyboards and rarely conflicts with other shortcuts. Shift and Command are deliberately excluded — Shift is held constantly while typing capitals, and Command is used by virtually every keyboard shortcut. The trigger key is detected alone — if other modifiers are held simultaneously, the press is ignored to avoid false triggers from key combos.
+- **Paste mode default**: Clipboard-based injection is the most reliable method — it handles all Unicode, punctuation, and special characters. Keystroke simulation is US-layout-dependent and may miss symbols.
+- **Bundled model priority**: The app checks for a bundled model first (instant load), then cached (no network), then downloads as last resort, providing the fastest possible first-launch experience.
+- **Non-activating windows**: Both the recording overlay and progress window use `NSPanel` with `.nonactivatingPanel` to avoid stealing focus from the user's active application.
+- **SPM-only (no Xcode project)**: The project uses Swift Package Manager exclusively. The `.app` bundle is created by `build-app.sh` rather than Xcode's build system. This means `Bundle.main.resourcePath` doesn't work as expected — the code derives paths from the executable's filesystem location instead.
+- **Apple Silicon only**: WhisperKit requires CoreML/Neural Engine for performant on-device inference. Intel Macs are explicitly unsupported.
+- **Minimum recording guards**: Recordings under 0.3 seconds are discarded (key bounce), samples under 8000 (~0.5s) are skipped, and near-silent audio (RMS < 0.001) is ignored.
+- **No keyboard shortcuts in menu**: HushType is a background/menu bar app — standard keyboard shortcuts (Cmd+Q, Cmd+,) don't make sense because the app window is never focused in normal use.
+- **Real-time transcription uses keystroke mode**: When real-time mode is active, incremental text injection always uses CGEvent keystrokes with backspace correction, regardless of the user's paste/keystroke injection preference. Clipboard paste mode cannot support character-level diffing. The user's injection preference still applies in standard (non-realtime) mode.
+- **Real-time overlap guard**: A `isRealtimeTranscribing` flag prevents concurrent transcription ticks. If a tick takes longer than the 2-second interval, the next tick is skipped. This avoids queuing up stale transcriptions.
+- **Custom menu bar icon default**: The custom branded icon is the default because the system SF Symbol `mic` looks too much like an official Apple icon, which confused test users.
+- **Distribution outside App Store**: The app sandbox blocks `NSEvent.addGlobalMonitorForEvents` and `CGEvent` keystroke simulation, making App Store distribution non-viable. Distributed via signed, notarised DMG with Sparkle auto-updates.
+- **Separate distribution entitlements**: The sandbox entitlements (`HushType.entitlements`) are kept for potential future App Store use, but distribution builds use `HushType-distribution.entitlements` (microphone only, no sandbox) to allow Sparkle updates and CGEvent text injection.
+- **Single notarisation submission**: The release script notarises the DMG (which notarises all binaries inside it), then staples both the app and DMG. This avoids uploading twice (once for app, once for DMG). The Sparkle ZIP is created from the stapled app so the update also contains the notarisation ticket.
+
+## User Guide
+
+A Word document user guide (`HushType-User-Guide.docx`) is generated by the `create-guide.js` Node.js script in the project root. The guide covers installation, permissions setup, menu bar items, all Settings panel options, auto-updates, and troubleshooting.
+
+**Important:** Whenever significant changes are made to HushType — new settings, UI changes, new menu items, behaviour changes, or permission requirements — the user guide must be updated to match. Edit `create-guide.js` and regenerate the docx by running `node create-guide.js`. The guide includes a version number (matching the app's `CFBundleShortVersionString` from Info.plist) which should be updated when releasing a new version.
+
+**Screenshots:** The guide embeds real screenshots from `docs/screenshots/` when they exist, falling back to grey placeholder boxes when they don't. The `SCREENSHOT_MAP` at the top of `create-guide.js` maps each placeholder caption to its expected filename. Current mappings: `dmg-install.png`, `menubar-icon.png`, `permission-microphone.png`, `permission-accessibility.png`, `permission-app-management.png`, `menubar-dropdown.png`, `settings-panel.png`. Images are auto-scaled to fit the page width (max 6.5 inches / 468pt, capped at 4 inches tall).
 
 ## Important Implementation Notes
 
@@ -358,3 +450,10 @@ Uses `SMAppService.mainApp` from the ServiceManagement framework (macOS 13+). Th
 - WhisperKit's `sampleLength` must match the model's decoder capacity: 448 for full large-v3 and medium models, 224 for everything else including turbo (which has a distilled 4-layer decoder).
 - The `TextInjector` paste mode restores the user's previous clipboard contents after a 300ms delay, minimizing clipboard disruption.
 - All windows in the app use `collectionBehavior: [.canJoinAllSpaces, .stationary]` so they appear on all macOS Spaces/desktops.
+- The settings window uses `NSScrollView` with auto-hiding scrollers for small-screen support, and an empty `NSToolbar` with `.unifiedCompact` style to center the window title on modern macOS.
+- The About window reads version and build numbers dynamically from `Bundle.main` (`CFBundleShortVersionString` and `CFBundleVersion`) rather than hardcoding them.
+- `PermissionManager` tracks the last app version that had accessibility granted in UserDefaults. After an update changes the version, it shows a specific "re-authorise" dialog instead of the generic first-time prompt.
+- Sparkle's `SPUStandardUpdaterController` must be initialized **before** `setupStatusItem()` in `applicationDidFinishLaunching` — otherwise the updater controller is nil when the "Check for Updates" menu item is created.
+- The "Check for Updates" menu item targets an `@objc` wrapper on `AppDelegate` rather than directly targeting `SPUStandardUpdaterController.checkForUpdates(_:)`, because NSMenu validation doesn't work correctly with the direct selector approach.
+- Build scripts copy the app bundle to `/tmp` for code signing to avoid iCloud-synced folders (like `~/Documents`) re-adding extended attributes that `codesign` rejects.
+- The `find` commands for Sparkle helper signing use `\( -name "X" -o -name "Y" \)` with escaped parentheses to correctly group the `-o` (OR) conditions.
