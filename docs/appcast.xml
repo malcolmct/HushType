@@ -7,6 +7,14 @@
         <language>en</language>
         <!-- Release entries will be added here by generate_appcast -->
         <item>
+            <title>1.8</title>
+            <pubDate>Sat, 07 Feb 2026 21:07:57 -0500</pubDate>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.8/HushType-1.8.zip" length="448351682" type="application/octet-stream" sparkle:edSignature="XoxywXdk3c18WlS7RLl+nU6D/yn0YHreBOy8oJZ1StPop8FY/1mqdBauau9lEDcFmLgcop02GOa53QMKmttHBA=="/>
+        </item>
+        <item>
             <title>1.7</title>
             <pubDate>Sat, 07 Feb 2026 20:55:17 -0500</pubDate>
             <sparkle:version>17</sparkle:version>
@@ -21,14 +29,6 @@
             <sparkle:shortVersionString>1.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.6/HushType-1.6.zip" length="448351676" type="application/octet-stream" sparkle:edSignature="N9r6bf4wss/+dDEhkcplMj0l6hQF2oDhNdzI8BkvgfAMhcgHUN7ANQXEiMc+LnGCeR5jvj+/Prq5onkDkcgmBg=="/>
-        </item>
-        <item>
-            <title>1.5</title>
-            <pubDate>Sat, 07 Feb 2026 19:43:17 -0500</pubDate>
-            <sparkle:version>15</sparkle:version>
-            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.5/HushType-1.5.zip" length="448350746" type="application/octet-stream" sparkle:edSignature="J50EijWMZ3FgymCsRkVovbF5PkkGJE3bzKz6QSXDyiaVk5yxHRZvtYEid6ri4ZWq2LDOFimEBm3yVBsR+HTjDQ=="/>
         </item>
     </channel>
 </rss>
