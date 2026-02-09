@@ -84,44 +84,24 @@ Trigger key press (configurable: Fn, Control, or Option) → start recording
 AudioManager captures mic → resamples to 16kHz mono Float32
     │                        (AVAudioEngine + AVAudioConverter)
     │
-    ├── [Standard mode] ──────────────────────────────────────────────
-    │   Trigger key release → stop recording
-    │       │
-    │       ▼
-    │   Validate audio:
-    │       - Duration ≥ 0.3s (debounce key bounce)
-    │       - Sample count ≥ 8000 (~0.5s at 16kHz)
-    │       - RMS level > 0.001 (not silent)
-    │       │
-    │       ▼
-    │   TranscriptionEngine.transcribe(samples)
-    │       │  WhisperKit inference with tuned DecodingOptions
-    │       │  Uses last result from temperature fallback iterations
-    │       │
-    │       ▼
-    │   TextInjector.injectText(text)
-    │       ├─ Paste mode (default): clipboard save → copy text → Cmd+V → restore clipboard
-    │       └─ Keystroke mode: per-character CGEvent keystrokes using US keycode map
+Trigger key release → stop recording
     │
-    └── [Real-time mode] (when useRealtimeTranscription is on) ─────
-        Every 2 seconds while recording:
-            │
-            ▼
-        AudioManager.getCurrentSamples() → snapshot buffer (non-destructive)
-            │
-            ▼
-        TranscriptionEngine.transcribe(snapshot)
-            │  Skip if < 16000 samples (~1s) or previous tick still running
-            │
-            ▼
-        TextInjector.injectIncremental(replacing: oldText, with: newText)
-            │  Computes diff: common prefix → backspace divergent chars → type new suffix
-            │  Also updates RecordingOverlayWindow with transcription preview
-            │
-        Trigger key release → stop timer → final transcription of complete audio
-            │  Applies final incremental correction (backspace + retype)
-            │
-            ▼
+    ▼
+Validate audio:
+    - Duration ≥ 0.3s (debounce key bounce)
+    - Sample count ≥ 8000 (~0.5s at 16kHz)
+    - RMS level > 0.001 (not silent)
+    │
+    ▼
+TranscriptionEngine.transcribe(samples)
+    │  WhisperKit inference with tuned DecodingOptions
+    │  Uses last result from temperature fallback iterations
+    │
+    ▼
+TextInjector.injectText(text)
+    ├─ Paste mode (default): clipboard save → copy text → Cmd+V → restore clipboard
+    └─ Keystroke mode: per-character CGEvent keystrokes using US keycode map
+
 If no Accessibility permission → falls back to copying text to clipboard
 ```
 
@@ -133,7 +113,7 @@ If no Accessibility permission → falls back to copying text to clipboard
 
 **`HotkeyManager`** — Detects the configured trigger key hold/release via `NSEvent.addGlobalMonitorForEvents` and `addLocalMonitorForEvents` for `.flagsChanged`. Reads `AppSettings.shared.triggerKey` on each event to determine which modifier to detect. Dynamically builds an exclusion set of all other modifiers so the trigger key must be pressed alone. Deduplicates events between global and local monitors using timestamp comparison. Dispatches `onKeyDown`/`onKeyUp` callbacks to main thread. Call `restartListening()` after changing the trigger key setting.
 
-**`AudioManager`** — Captures audio via `AVAudioEngine`. Installs a tap on the input node with 4096 buffer size in the mic's native format. Uses `AVAudioConverter` to resample to 16kHz mono Float32 (WhisperKit's required format). Accumulates samples in a thread-safe buffer (protected by `bufferQueue` dispatch queue). Calculates RMS audio level (normalized to 0–1 by multiplying by 3.0) and reports via `onAudioLevel` callback. Provides `availableInputDevices` via AVCaptureDevice discovery. `getCurrentSamples()` returns a non-destructive snapshot of the buffer for real-time transcription without stopping recording.
+**`AudioManager`** — Captures audio via `AVAudioEngine`. Installs a tap on the input node with 4096 buffer size in the mic's native format. Uses `AVAudioConverter` to resample to 16kHz mono Float32 (WhisperKit's required format). Accumulates samples in a thread-safe buffer (protected by `bufferQueue` dispatch queue). Calculates RMS audio level (normalized to 0–1 by multiplying by 3.0) and reports via `onAudioLevel` callback. Provides `availableInputDevices` via AVCaptureDevice discovery.
 
 **`TranscriptionEngine`** — Manages WhisperKit model lifecycle and transcription. Model resolution follows a priority chain:
 
@@ -171,17 +151,15 @@ Posts `Notification.Name.modelDidChange` when a model finishes loading.
 
 Both modes use `CGEventSource(stateID: .hidSystemState)` and post to `.cghidEventTap`.
 
-A third mode — **incremental injection** — is used by real-time transcription. `injectIncremental(replacing:with:)` computes the longest common prefix between the old and new text, sends backspace keystrokes to delete the divergent tail, then types the new suffix. This always uses CGEvent keystrokes (not clipboard paste) for character-level control.
-
 **`PermissionManager`** — Checks `AVCaptureDevice.authorizationStatus(.audio)` for microphone. Checks `AXIsProcessTrusted()` for accessibility. Two distinct accessibility dialogs:
 - **First-time**: Instructions to add HushType to the Accessibility list
 - **Post-update**: Detects version change via `UserDefaults` tracking (`LastAccessibilityGrantedVersion`) and shows instructions to remove and re-add the entry, explaining this is required by macOS after code changes
 
 Both dialogs include an "Open Settings" button that navigates directly to the Accessibility pane (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`). Records the current version when accessibility is confirmed granted. Also re-checks accessibility after the model finishes loading via `recheckAccessibility()`.
 
-**App Management permission is NOT required.** Since HushType is signed with the developer's own Developer ID and Sparkle updates are also signed with the same Developer ID, macOS Gatekeeper recognises the matching code signature and allows the app to update itself in `/Applications` without explicit App Management permission. If an edge case ever arises where macOS blocks an update, Sparkle reports the failure and the user can grant permission manually in System Settings. This is far better UX than pre-prompting for a confusing permission.
+**App Management permission** is recommended but not required for core functionality. It allows Sparkle to install automatic updates in `/Applications`. Normally, matching Developer ID code signatures mean macOS allows updates without this permission, but edge cases can arise where macOS blocks an update. The permissions window includes an App Management row with a "Setup…" button that opens System Settings to Privacy & Security and shows inline guidance directing the user to scroll down to "App Management" and toggle on HushType. There is no public API to check App Management status or deep-link to the App Management section, so the row never auto-detects — its Setup button always remains visible. The counter only tracks the 2 required permissions (Microphone + Accessibility).
 
-Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines both permission checks (microphone + accessibility); `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately.
+Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines both required permission checks (microphone + accessibility); `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately; `openPrivacySecuritySettings()` opens Privacy & Security for App Management navigation.
 
 **`AppSettings`** — Singleton backed by `UserDefaults.standard`. Also defines the `TriggerKey` enum (`fn`, `control`, `option`) and the `MenuBarIconStyle` enum (`system`, `custom`). Shift and Command are excluded from trigger keys because they conflict heavily with system and app shortcuts. The `startAtLogin` property is NOT stored in UserDefaults — it uses `SMAppService.mainApp` (ServiceManagement framework) as its source of truth, which integrates directly with System Settings > Login Items. Settings:
 
@@ -193,17 +171,16 @@ Aggregate helper methods (used by `PermissionsWindowController`): `allPermission
 | `audioInputDeviceID` | `String?` | `nil` (system default) | Selected microphone device ID |
 | `showOverlay` | `Bool` | `true` | Show floating recording overlay |
 | `language` | `String?` | `nil` (auto-detect) | Transcription language |
-| `useRealtimeTranscription` | `Bool` | `true` | Real-time mode: transcribe and type while still recording |
 | `menuBarIconStyle` | `MenuBarIconStyle` | `.custom` | Menu bar icon appearance (posts `.menuBarIconDidChange` on set) |
 | `startAtLogin` | `Bool` | `false` | Register/unregister via SMAppService (not in UserDefaults) |
 
-**`RecordingOverlayWindow`** — Non-activating `NSPanel` (200x44 px, expanding to 400x72 in real-time mode) positioned at top-center of screen. HUD style with black 85% opacity background, corner radius 10. Shows status text ("Recording…" / "Transcribing…" / "Recording (real-time)…") and a green level bar. In real-time mode, also shows a transcription preview label with the current partial text. Uses `.nonactivatingPanel` + `.hudWindow` + `.utilityWindow` style mask. Collection behavior: `.canJoinAllSpaces`, `.stationary`.
+**`RecordingOverlayWindow`** — Non-activating `NSPanel` (200x44 px) positioned at top-center of screen. HUD style with black 85% opacity background, corner radius 10. Shows status text ("Recording…" / "Transcribing…") and a green level bar. Uses `.nonactivatingPanel` + `.hudWindow` + `.utilityWindow` style mask. Collection behavior: `.canJoinAllSpaces`, `.stationary`.
 
 **`ModelProgressWindow`** — Non-activating `NSPanel` (360x120 px) centered on screen. Shows title, progress bar (`NSProgressIndicator`), percentage, and status text. Only appears when downloading (bundled/cached models skip it). Created lazily on first progress callback.
 
 **`SettingsWindowController`** — Static factory (`createWindow()`) building a 460-wide settings window wrapped in an `NSScrollView` for small-screen support (auto-hiding scrollers, min height 400, resizable vertically). Uses an empty `NSToolbar` with `.unifiedCompact` style to center the window title. Always scrolls to the top of the form when opened. Sections:
 - **General**: "Start HushType at login" checkbox (uses SMAppService, re-reads actual state after toggle in case registration fails)
-- **Activation**: Dropdown (`NSPopUpButton`) to select the trigger key from all `TriggerKey` cases; checkbox for "Real-time transcription" (type text while speaking instead of on key release)
+- **Activation**: Dropdown (`NSPopUpButton`) to select the trigger key from all `TriggerKey` cases
 - **Whisper Model**: Current model display, advanced checkbox revealing model picker dropdown (tag 101) and hint (tag 102)
 - **Language**: Dropdown populated from `TranscriptionEngine.supportedLanguages` (30 languages + auto-detect). When a non-English language is selected and the current model has an `.en` suffix, the handler auto-switches to the multilingual equivalent (e.g. `small.en` → `small`) and triggers a model reload.
 - **Text Injection**: Radio buttons for paste (tag 1) vs keystrokes (tag 2)
@@ -437,8 +414,6 @@ Uses `SMAppService.mainApp` from the ServiceManagement framework (macOS 13+). Th
 - **Apple Silicon only**: WhisperKit requires CoreML/Neural Engine for performant on-device inference. Intel Macs are explicitly unsupported.
 - **Minimum recording guards**: Recordings under 0.3 seconds are discarded (key bounce), samples under 8000 (~0.5s) are skipped, and near-silent audio (RMS < 0.001) is ignored.
 - **No keyboard shortcuts in menu**: HushType is a background/menu bar app — standard keyboard shortcuts (Cmd+Q, Cmd+,) don't make sense because the app window is never focused in normal use.
-- **Real-time transcription uses keystroke mode**: When real-time mode is active, incremental text injection always uses CGEvent keystrokes with backspace correction, regardless of the user's paste/keystroke injection preference. Clipboard paste mode cannot support character-level diffing. The user's injection preference still applies in standard (non-realtime) mode.
-- **Real-time overlap guard**: A `isRealtimeTranscribing` flag prevents concurrent transcription ticks. If a tick takes longer than the 2-second interval, the next tick is skipped. This avoids queuing up stale transcriptions.
 - **Custom menu bar icon default**: The custom branded icon is the default because the system SF Symbol `mic` looks too much like an official Apple icon, which confused test users.
 - **Distribution outside App Store**: The app sandbox blocks `NSEvent.addGlobalMonitorForEvents` and `CGEvent` keystroke simulation, making App Store distribution non-viable. Distributed via signed, notarised DMG with Sparkle auto-updates.
 - **Separate distribution entitlements**: The sandbox entitlements (`HushType.entitlements`) are kept for potential future App Store use, but distribution builds use `HushType-distribution.entitlements` (microphone only, no sandbox) to allow Sparkle updates and CGEvent text injection.
