@@ -23,7 +23,7 @@ const {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const VERSION = "Version 1.21";
+const VERSION = "Version 1.22";
 const CREATION_DATE = "8 February 2026";
 const OUTPUT_FILE = path.join(__dirname, "HushType-User-Guide.docx");
 const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
@@ -75,7 +75,7 @@ function loadScreenshot(caption) {
   let imgWidth = 600, imgHeight = 400;
   if (data.length > 24 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
     imgWidth = data.readUInt32BE(16);
-    imgHeight = data.readUInt32BE(18);
+    imgHeight = data.readUInt32BE(20);  // IHDR: width at 16, height at 20 (not 18)
   }
 
   // Scale to fit content width (max 468pt = 6.5 inches), cap height at 4 inches (288pt)
