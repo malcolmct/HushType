@@ -7,12 +7,20 @@
         <language>en</language>
         <!-- Release entries will be added here by generate_appcast -->
         <item>
+            <title>1.21</title>
+            <pubDate>Sun, 08 Feb 2026 19:30:08 -0500</pubDate>
+            <sparkle:version>121</sparkle:version>
+            <sparkle:shortVersionString>1.21</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.21/HushType-1.21.zip" length="448377805" type="application/octet-stream" sparkle:edSignature="BaCWyQelqL3mPswqNayMEceecUusF/LgxKZ+fFgHVWROOyvrXmhcn46G45l0ebhO5i3QysGXi6RCh5y6w49xBw=="/>
+        </item>
+        <item>
             <title>1.20</title>
             <pubDate>Sun, 08 Feb 2026 18:05:59 -0500</pubDate>
             <sparkle:version>120</sparkle:version>
             <sparkle:shortVersionString>1.20</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.20/HushType-1.20.zip" length="448364566" type="application/octet-stream" sparkle:edSignature="EdFrzU3rDxmXhwiOXZhqKNPbklTUKNU87pOmA3ZKGsJ2zbM1A717EWS+mfGTknZ1w8G0Ex/R1YYRjPL5sr0uAA=="/>
+            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.20/HushType-1.20.zip" length="448377780" type="application/octet-stream" sparkle:edSignature="QM0aOm2DL559C7xcYwz57xLhe/3Pjf0Bc7u613qm48hMkBtLhy7/xANYZTJY2x4fKE5K135stb08qRLeKgN9Bg=="/>
         </item>
         <item>
             <title>1.19</title>
@@ -21,14 +29,6 @@
             <sparkle:shortVersionString>1.19</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.19/HushType-1.19.zip" length="448364176" type="application/octet-stream" sparkle:edSignature="92WTkenXqRAyVe+CUuW/jsBlh7tkXI7sdzff8M/atBclBfbwxhflriqjVoFXi2RgG5iAllYPF1Q6LkAXG0MLBw=="/>
-        </item>
-        <item>
-            <title>1.18</title>
-            <pubDate>Sun, 08 Feb 2026 14:20:38 -0500</pubDate>
-            <sparkle:version>118</sparkle:version>
-            <sparkle:shortVersionString>1.18</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/malcolmct/HushType/releases/download/v1.18/HushType-1.18.zip" length="448364198" type="application/octet-stream" sparkle:edSignature="HVItKVy2lAsR+3qBxyIFAlNun1bYc/sYQY5ltymPeYzOJYCUqhdzbD4J/HeWPqbGuvwaqpRSCPOJLuUyTwnKAQ=="/>
         </item>
     </channel>
 </rss>

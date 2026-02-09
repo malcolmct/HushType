@@ -23,7 +23,7 @@ const {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const VERSION = "Version 1.20";
+const VERSION = "Version 1.21";
 const CREATION_DATE = "8 February 2026";
 const OUTPUT_FILE = path.join(__dirname, "HushType-User-Guide.docx");
 const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
@@ -32,6 +32,7 @@ const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
 const SCREENSHOT_MAP = {
   "DMG window showing drag-to-install layout": "dmg-install.png",
   "Menu bar showing HushType icon": "menubar-icon.png",
+  "HushType permissions window showing permission status": "permission-window.png",
   "macOS microphone permission dialog": "permission-microphone.png",
   "System Settings → Privacy & Security → Accessibility with HushType enabled": "permission-accessibility.png",
   "macOS App Management permission dialog": "permission-app-management.png",
@@ -304,13 +305,15 @@ function buildContent() {
 
   // --- Setting Up Permissions ---
   children.push(heading("Setting Up Permissions", HeadingLevel.HEADING_1));
-  children.push(body("HushType needs three macOS permissions to work correctly. macOS asks you to grant each one individually for security reasons. The app will prompt you for these on first launch, but this section explains each one in detail in case you need to set them up manually."));
+  children.push(body("HushType needs three macOS permissions to work correctly: Microphone, Accessibility, and App Management. On first launch, HushType displays a **permissions window** that shows the status of each required permission at a glance. Each row shows whether the permission is already enabled or still needs to be granted, and an **Enable** button lets you grant it directly."));
+  children.push(...screenshotBlock("HushType permissions window showing permission status"));
+  children.push(body("The permissions window updates live \u2014 as you grant each permission, its status changes to a green checkmark. You can close the window once all permissions are enabled. This section explains each permission in detail in case you need to set them up manually."));
   children.push(tipBox("Tip: You can always check or change these permissions later in System Settings \u2192 Privacy & Security."));
 
   // 1. Microphone
   children.push(heading("1. Microphone Access", HeadingLevel.HEADING_2));
   children.push(body("**What it does:** Allows HushType to hear your voice so it can transcribe your speech."));
-  children.push(body('**When it appears:** macOS will show a system dialog the first time HushType tries to access the microphone. Click **Allow**.'));
+  children.push(body('**How to enable:** Click the **Enable** button next to Microphone in the permissions window. macOS will show a system dialog \u2014 click **Allow**.'));
   children.push(...screenshotBlock("macOS microphone permission dialog"));
   children.push(body('**If you accidentally denied it:** Open **System Settings \u2192 Privacy & Security \u2192 Microphone**, find HushType in the list, and toggle it on.'));
   children.push(tipBox("Without microphone access, HushType cannot hear you at all. This permission is essential.", "warning"));
@@ -318,7 +321,7 @@ function buildContent() {
   // 2. Accessibility
   children.push(heading("2. Accessibility Access", HeadingLevel.HEADING_2));
   children.push(body("**What it does:** Allows HushType to type the transcribed text into other applications on your behalf. Without this, the app cannot simulate keystrokes or paste text into your active window."));
-  children.push(body("**Why it\u2019s the trickiest permission:** Unlike the microphone dialog, macOS does not automatically show an Accessibility prompt. You need to add HushType to the list manually. HushType will guide you with a dialog, but here are the steps in detail:"));
+  children.push(body("**How to enable:** Click the **Enable** button next to Accessibility in the permissions window. This opens System Settings to the correct page. Unlike the microphone dialog, macOS does not grant this permission automatically \u2014 you need to add HushType to the list manually. Here are the steps:"));
   children.push(body("**1. Open System Settings \u2192 Privacy & Security \u2192 Accessibility.**"));
   children.push(body('**2. Click the "+" button at the bottom of the list.**'));
   children.push(body("**3. Navigate to your Applications folder, select HushType, and click Open.**"));
@@ -328,7 +331,7 @@ function buildContent() {
 
   // Re-granting Accessibility
   children.push(heading("Re-granting Accessibility after updates", HeadingLevel.HEADING_3));
-  children.push(body("macOS revokes Accessibility permission whenever an app\u2019s code changes \u2014 which happens after every update. This is a macOS security measure, not a bug in HushType. After an update, HushType will show a dialog explaining what to do. The steps are:"));
+  children.push(body("macOS revokes Accessibility permission whenever an app\u2019s code changes \u2014 which happens after every update. This is a macOS security measure, not a bug in HushType. After an update, HushType\u2019s permissions window will appear showing Accessibility as needing attention. The steps to re-grant it are:"));
   children.push(body('**1. Open System Settings \u2192 Privacy & Security \u2192 Accessibility.**'));
   children.push(body('**2. Select HushType in the list and click the "\u2212" (minus) button to remove it.**'));
   children.push(body('**3. Click "+" and re-add HushType from your Applications folder.**'));
@@ -338,7 +341,7 @@ function buildContent() {
   // 3. App Management
   children.push(heading("3. App Management", HeadingLevel.HEADING_2));
   children.push(body("**What it does:** Allows HushType\u2019s built-in updater to replace the app with a new version."));
-  children.push(body("**When it appears:** On first launch, HushType will trigger a macOS system dialog asking whether you want to allow HushType to manage app updates. Click **Allow** to grant the permission. This happens automatically \u2014 you do not need to navigate to System Settings."));
+  children.push(body("**How to enable:** Click the **Enable** button next to App Management in the permissions window. macOS will show a system dialog asking whether you want to allow HushType to manage app updates. Click **Allow** to grant the permission."));
   children.push(...screenshotBlock("macOS App Management permission dialog"));
   children.push(body('**If you accidentally denied it:** Open **System Settings \u2192 Privacy & Security**, scroll down to **App Management**, find HushType in the list, and toggle it on.'));
   children.push(tipBox("Without App Management permission, the first automatic update will fail. macOS will prompt you again at that point, so the permission can also be granted then. You only need to grant this once."));

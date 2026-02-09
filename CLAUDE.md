@@ -39,6 +39,7 @@ HushType/
 │   ├── ModelProgressWindow.swift              # Floating HUD showing model download/load progress
 │   ├── SettingsWindowController.swift         # Settings window UI (scrollable) + SettingsActions handler
 │   ├── AboutWindowController.swift            # About window with dynamic version + license attribution
+│   ├── PermissionsWindowController.swift      # Snagit-style permissions table window (shown on launch)
 │   ├── Models/
 │   │   └── AppSettings.swift                  # Singleton UserDefaults settings + TriggerKey + MenuBarIconStyle enums
 │   ├── Managers/
@@ -129,7 +130,7 @@ If no Accessibility permission → falls back to copying text to clipboard
 
 **`main.swift`** — Entry point. Checks for Apple Silicon via `uname()`. Sets activation policy to `.accessory` (menu bar only). Creates `AppDelegate` and runs the app.
 
-**`AppDelegate`** — Central orchestrator. Owns all managers and the Sparkle updater controller. Sets up the NSStatusItem menu bar with items: status text (tag 1), model info (tag 2), Settings, Check for Updates, About (with custom icon), and Quit (no keyboard shortcuts — inappropriate for a background app). Coordinates the recording lifecycle: `startRecording()` → `stopRecordingAndTranscribe()`. Manages UI state for overlay, progress window, and menu bar icon (system SF Symbol or custom branded icon, with red tint when recording). Listens for `.modelDidChange`, `.triggerKeyDidChange`, and `.menuBarIconDidChange` notifications. Loads the Whisper model asynchronously on launch and re-checks accessibility once loading completes.
+**`AppDelegate`** — Central orchestrator. Owns all managers and the Sparkle updater controller. Sets up the NSStatusItem menu bar with items: status text (tag 1), model info (tag 2), Settings, Check for Updates, About (with custom icon), and Quit (no keyboard shortcuts — inappropriate for a background app). Coordinates the recording lifecycle: `startRecording()` → `stopRecordingAndTranscribe()`. Manages UI state for overlay, progress window, and menu bar icon (system SF Symbol or custom branded icon, with red tint when recording). Listens for `.modelDidChange`, `.triggerKeyDidChange`, and `.menuBarIconDidChange` notifications. Loads the Whisper model asynchronously on launch and re-checks accessibility once loading completes. On launch, calls `showPermissionsWindowIfNeeded()` which shows the `PermissionsWindowController` if any permission is missing (replacing the old `checkPermissions()` sequential-alert approach).
 
 **`HotkeyManager`** — Detects the configured trigger key hold/release via `NSEvent.addGlobalMonitorForEvents` and `addLocalMonitorForEvents` for `.flagsChanged`. Reads `AppSettings.shared.triggerKey` on each event to determine which modifier to detect. Dynamically builds an exclusion set of all other modifiers so the trigger key must be pressed alone. Deduplicates events between global and local monitors using timestamp comparison. Dispatches `onKeyDown`/`onKeyUp` callbacks to main thread. Call `restartListening()` after changing the trigger key setting.
 
@@ -154,13 +155,14 @@ Transcription uses `DecodingOptions` tuned for accuracy:
 
 Also defines `supportedLanguages`: a static list of 30 languages (code + display name) used by the Settings UI language picker.
 
-Post-processing: `removeRepeatedPhrases(_:)` runs on every transcription result to clean up Whisper decoder loops. Four passes:
+Post-processing: `removeRepeatedPhrases(_:)` runs on every transcription result to clean up Whisper decoder loops. Five passes:
 1. **Sentence dedup** — removes consecutive duplicate sentences (case-insensitive)
 2. **Substring pattern** — detects a phrase repeated 3+ times from the start of the text; collapses to one copy plus any unique tail
 3. **Trailing echo** — detects when a trailing sequence of words echoes the tail of the preceding text (e.g. "...it performs in the long run. It performs in the long run." → removes the trailing echo). Uses word-level comparison (case-insensitive, punctuation stripped per word) so it works regardless of how Whisper punctuates the echo boundary — period, comma, or nothing. Requires ≥3 matching words to avoid false positives. This targets a common Whisper artefact in real-time mode where chunk boundaries cause the decoder to repeat the end of the previous chunk.
 4. **Mid-sentence stutter** — detects when a partial phrase before a comma restarts in more complete form after the comma (e.g. "...but it goes ba, but it goes back..." → "...but it goes back..."). Compares the last N words before each comma with the first N words after it; requires ≥3 overlapping words, and the last pre-comma word may be a truncated prefix of the post-comma word (e.g. "ba" → "back").
+5. **Garbled echo** — detects when a word sequence appears twice with garbled/nonsense text in the gap between them (e.g. "...breathe and tol otvhea tyo uy.ou breathe and to love you." → "...breathe and to love you."). This targets a Whisper chunk-boundary artifact where the decoder produces jumbled characters at the overlap zone. The algorithm searches for any 2+ word sequence that repeats with a short gap (≤ max(matchLen×2, 8) words) between occurrences, where the gap contains at least one "garbled" word — defined as containing embedded non-letter characters (e.g. "uy.ou") or being all consonants with 3+ letters. A safety constraint prevents removing more than half the text to avoid false positives with coincidentally repeated phrases. Preserves sentence-ending punctuation from the original text.
 
-Helper methods: `splitIntoSentences(_:)` splits on `.!?` boundaries keeping delimiters attached; `removeTrailingEcho(_:)` performs the Pass 3 word-level echo check; `removeMidSentenceStutters(_:)` performs the Pass 4 comma-boundary overlap check.
+Helper methods: `splitIntoSentences(_:)` splits on `.!?` boundaries keeping delimiters attached; `removeTrailingEcho(_:)` performs the Pass 3 word-level echo check; `removeMidSentenceStutters(_:)` performs the Pass 4 comma-boundary overlap check; `removeGarbledEcho(_:)` performs the Pass 5 garbled echo detection; `containsGarbledWord(_:)` checks if any word in an array looks like corrupted Whisper output.
 
 Posts `Notification.Name.modelDidChange` when a model finishes loading.
 
@@ -180,6 +182,8 @@ A third mode — **incremental injection** — is used by real-time transcriptio
 Both dialogs include an "Open Settings" button that navigates directly to the Accessibility pane (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`). Records the current version when accessibility is confirmed granted. Also re-checks accessibility after the model finishes loading via `recheckAccessibility()`.
 
 Also handles **App Management** permission: on first launch, if the app is installed in `/Applications`, it triggers the native macOS App Management consent dialog by attempting a harmless write inside the app bundle (`Contents/.permission_check`). On macOS 13+, writing to an app bundle in `/Applications` requires App Management permission — macOS intercepts the write and shows its own system dialog asking the user to grant it. If the user grants permission, the temporary file is created and immediately deleted; if they deny, the write fails harmlessly. This is much better UX than directing users to manually locate App Management in System Settings (there is no deep-link URL scheme for that pane). If the native dialog doesn't appear for any reason, the code falls back to manual instructions. This must happen before the first Sparkle update — otherwise Sparkle's installer helper is blocked by macOS and the update fails on the first attempt. The prompt is tracked via `UserDefaults` (`AppManagementPermissionPrompted`) so it only fires once.
+
+Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines all three permission checks; `isAppManagementRelevant` returns true only when the app is in `/Applications` (controls whether the App Management row appears in the permissions window); `checkAppManagementPermission()` tests bundle-write permission without triggering prompts; `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately; `requestAppManagementSilent()` attempts bundle write or opens Settings.
 
 **`AppSettings`** — Singleton backed by `UserDefaults.standard`. Also defines the `TriggerKey` enum (`fn`, `control`, `option`) and the `MenuBarIconStyle` enum (`system`, `custom`). Shift and Command are excluded from trigger keys because they conflict heavily with system and app shortcuts. The `startAtLogin` property is NOT stored in UserDefaults — it uses `SMAppService.mainApp` (ServiceManagement framework) as its source of truth, which integrates directly with System Settings > Login Items. Settings:
 
@@ -211,6 +215,14 @@ Also handles **App Management** permission: on first launch, if the app is insta
 `SettingsActions` (singleton `NSObject` subclass) handles UI callbacks including `triggerKeyChanged(_:)`, `languageChanged(_:)`, `startAtLoginToggled(_:)`, `menuBarIconStyleChanged(_:)`, and triggers model reloading in `TranscriptionEngine`.
 
 **`AboutWindowController`** — Static factory (`createWindow()`) building a 360x400 About window displaying the app icon, name, **dynamic version and build number** (read from `Bundle.main` `CFBundleShortVersionString` and `CFBundleVersion` at runtime), a brief description, copyright notice (© 2026 Malcolm Taylor), and a scrollable open-source acknowledgements section with full MIT license text for both WhisperKit (Argmax, Inc.) and OpenAI Whisper.
+
+**`PermissionsWindowController`** — Snagit-style permissions window shown on launch when any required permission is not yet granted. Static factory (`createWindow(permissionManager:)`) returning an NSWindow, matching the pattern used by Settings and About windows. Self-retains via a static `retainedInstance` while open (released on `windowWillClose` via NSWindowDelegate). The rows are built dynamically: Microphone and Accessibility are always shown; App Management is only included when the app is installed in `/Applications` (checked via `PermissionManager.isAppManagementRelevant`), since the permission isn't needed when running from a build directory. The window height adjusts to fit the number of rows. Contains:
+  - SF Symbol icon (`mic.fill`, `hand.raised.fill`, `gearshape.fill`)
+  - Bold title and description text
+  - Right side: blue "Enable" button (when not granted) or green checkmark + "Enabled!" label (when granted)
+- Counter label ("N of M Enabled", where M is the number of visible rows) and a "Done" button
+
+A 1-second polling timer (`refreshStatus()`) checks all three permission states and updates the UI live as the user grants access. Enable button actions: Microphone triggers `AVCaptureDevice.requestAccess` (system dialog) or opens System Settings if already denied; Accessibility opens System Settings directly; App Management attempts a bundle write (triggers native macOS consent dialog) or opens System Settings as fallback. The window replaces the old sequential-alert approach from `checkPermissions()` — instead of three separate NSAlert dialogs, all permissions are visible at once with live status feedback.
 
 ## Menu Bar Icon
 
@@ -440,7 +452,7 @@ A Word document user guide (`HushType-User-Guide.docx`) is generated by the `cre
 
 **Important:** Whenever significant changes are made to HushType — new settings, UI changes, new menu items, behaviour changes, or permission requirements — the user guide must be updated to match. Edit `create-guide.js` and regenerate the docx by running `node create-guide.js`. The guide includes a version number (matching the app's `CFBundleShortVersionString` from Info.plist) which should be updated when releasing a new version.
 
-**Screenshots:** The guide embeds real screenshots from `docs/screenshots/` when they exist, falling back to grey placeholder boxes when they don't. The `SCREENSHOT_MAP` at the top of `create-guide.js` maps each placeholder caption to its expected filename. Current mappings: `dmg-install.png`, `menubar-icon.png`, `permission-microphone.png`, `permission-accessibility.png`, `permission-app-management.png`, `menubar-dropdown.png`, `settings-panel.png`. Images are auto-scaled to fit the page width (max 6.5 inches / 468pt, capped at 4 inches tall).
+**Screenshots:** The guide embeds real screenshots from `docs/screenshots/` when they exist, falling back to grey placeholder boxes when they don't. The `SCREENSHOT_MAP` at the top of `create-guide.js` maps each placeholder caption to its expected filename. Current mappings: `dmg-install.png`, `menubar-icon.png`, `permission-window.png`, `permission-microphone.png`, `permission-accessibility.png`, `permission-app-management.png`, `menubar-dropdown.png`, `settings-panel.png`. Images are auto-scaled to fit the page width (max 6.5 inches / 468pt, capped at 4 inches tall).
 
 ## Important Implementation Notes
 
