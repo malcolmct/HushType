@@ -154,14 +154,13 @@ Transcription uses `DecodingOptions` tuned for accuracy:
 
 Also defines `supportedLanguages`: a static list of 30 languages (code + display name) used by the Settings UI language picker.
 
-Post-processing: `removeRepeatedPhrases(_:)` runs on every transcription result to clean up Whisper decoder loops. Five passes:
+Post-processing: `removeRepeatedPhrases(_:)` runs on every transcription result with two conservative passes:
 1. **Sentence dedup** — removes consecutive duplicate sentences (case-insensitive)
-2. **Substring pattern** — detects a phrase repeated 3+ times from the start of the text; collapses to one copy plus any unique tail
-3. **Trailing echo** — detects when a trailing sequence of words echoes the tail of the preceding text (e.g. "...it performs in the long run. It performs in the long run." → removes the trailing echo). Uses word-level comparison (case-insensitive, punctuation stripped per word) so it works regardless of how Whisper punctuates the echo boundary — period, comma, or nothing. Requires ≥3 matching words to avoid false positives. This targets a common Whisper artefact in real-time mode where chunk boundaries cause the decoder to repeat the end of the previous chunk.
-4. **Mid-sentence stutter** — detects when a partial phrase before a comma restarts in more complete form after the comma (e.g. "...but it goes ba, but it goes back..." → "...but it goes back..."). Compares the last N words before each comma with the first N words after it; requires ≥3 overlapping words, and the last pre-comma word may be a truncated prefix of the post-comma word (e.g. "ba" → "back").
-5. **Garbled echo** — detects when a word sequence appears twice with garbled/nonsense text in the gap between them (e.g. "...breathe and tol otvhea tyo uy.ou breathe and to love you." → "...breathe and to love you."). This targets a Whisper chunk-boundary artifact where the decoder produces jumbled characters at the overlap zone. The algorithm searches for any 2+ word sequence that repeats with a short gap (≤ max(matchLen×2, 8) words) between occurrences, where the gap contains at least one "garbled" word — defined as containing embedded non-letter characters (e.g. "uy.ou") or being all consonants with 3+ letters. A safety constraint prevents removing more than half the text to avoid false positives with coincidentally repeated phrases. Preserves sentence-ending punctuation from the original text.
+2. **Trailing echo** — detects when a trailing sequence of words echoes the tail of the preceding text (e.g. "...it performs in the long run. It performs in the long run." → removes the trailing echo). Uses word-level comparison (case-insensitive, punctuation stripped per word). Requires ≥3 matching words to avoid false positives.
 
-Helper methods: `splitIntoSentences(_:)` splits on `.!?` boundaries keeping delimiters attached; `removeTrailingEcho(_:)` performs the Pass 3 word-level echo check; `removeMidSentenceStutters(_:)` performs the Pass 4 comma-boundary overlap check; `removeGarbledEcho(_:)` performs the Pass 5 garbled echo detection; `containsGarbledWord(_:)` checks if any word in an array looks like corrupted Whisper output.
+The raw Whisper output is always logged before post-processing (`[TranscriptionEngine] Raw Whisper output: "..."`), making it easy to diagnose whether artifacts come from Whisper itself or from post-processing.
+
+Helper methods: `splitIntoSentences(_:)` splits on `.!?` boundaries keeping delimiters attached; `removeTrailingEcho(_:)` performs the trailing echo word-level check.
 
 Posts `Notification.Name.modelDidChange` when a model finishes loading.
 
