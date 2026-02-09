@@ -72,6 +72,7 @@ class AppSettings {
         static let showOverlay = "showOverlay"
         static let language = "language"
         static let menuBarIconStyle = "menuBarIconStyle"
+        static let useRealtimeTranscription = "useRealtimeTranscription"
     }
 
     // MARK: - Settings
@@ -131,6 +132,19 @@ class AppSettings {
     var language: String? {
         get { defaults.string(forKey: Keys.language) }
         set { defaults.set(newValue, forKey: Keys.language) }
+    }
+
+    /// Whether to use real-time transcription (text typed while still recording).
+    /// When false (default), transcription happens after the trigger key is released.
+    /// Marked experimental — real-time mode can produce timing artefacts in some apps.
+    var useRealtimeTranscription: Bool {
+        get {
+            if defaults.object(forKey: Keys.useRealtimeTranscription) == nil {
+                return false // Default off — experimental feature
+            }
+            return defaults.bool(forKey: Keys.useRealtimeTranscription)
+        }
+        set { defaults.set(newValue, forKey: Keys.useRealtimeTranscription) }
     }
 
     /// Menu bar icon style: system SF Symbol or custom HushType icon.

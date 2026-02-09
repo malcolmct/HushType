@@ -19,6 +19,68 @@ class TextInjector {
         }
     }
 
+    // MARK: - Incremental Injection (Real-time Mode)
+
+    /// Incrementally update the text in the focused application by computing the diff
+    /// between what was previously injected and the new transcription, then using
+    /// backspace to remove divergent characters and typing the new suffix.
+    ///
+    /// Always uses keystroke mode (not clipboard paste) for character-level control.
+    ///
+    /// - Parameters:
+    ///   - oldText: The text that was previously typed into the application.
+    ///   - newText: The new full transcription to display.
+    func injectIncremental(replacing oldText: String, with newText: String) {
+        // Find the longest common prefix, ignoring case differences.
+        // Whisper often flips capitalisation between ticks (e.g. "i went" → "I went").
+        // A case-sensitive diff would delete and retype the entire sentence just for
+        // that one letter. Case-insensitive matching keeps the prefix long and only
+        // updates what actually changed. The final transcription corrects casing.
+        let commonPrefixLength = zip(oldText, newText)
+            .prefix(while: { $0.lowercased() == $1.lowercased() }).count
+
+        // Delete characters after the common prefix in the old text
+        let charsToDelete = oldText.count - commonPrefixLength
+        if charsToDelete > 0 {
+            sendBackspaces(count: charsToDelete)
+
+            // Give the target app time to process all backspaces before we start
+            // typing new characters. Without this pause, the new keystrokes can
+            // arrive before the app finishes deleting, producing garbled output.
+            let settleTime: UInt32 = charsToDelete > 20
+                ? 200_000    // 200ms for large deletions
+                : 100_000    // 100ms for small deletions
+            usleep(settleTime)
+        }
+
+        // Type the new suffix after the common prefix
+        let newSuffix = String(newText.dropFirst(commonPrefixLength))
+        if !newSuffix.isEmpty {
+            for char in newSuffix {
+                if let mapping = Self.keycodeMap[char] {
+                    simulateKeyPress(keyCode: mapping.keycode, modifiers: mapping.modifiers)
+                } else {
+                    injectUnicodeCharacter(char)
+                }
+                usleep(5_000) // 5ms between keystrokes
+            }
+        }
+
+        let deleted = charsToDelete > 0 ? "deleted \(charsToDelete)" : "no deletes"
+        let typed = newSuffix.count > 0 ? "typed \(newSuffix.count)" : "no new chars"
+        print("[TextInjector] Incremental update: \(deleted), \(typed)")
+    }
+
+    /// Send a number of backspace key events to delete characters before the cursor.
+    private func sendBackspaces(count: Int) {
+        let backspaceKeyCode = UInt16(kVK_Delete)
+        for _ in 0..<count {
+            simulateKeyPress(keyCode: backspaceKeyCode)
+            usleep(8_000) // 8ms between backspaces — needs to be slightly slower
+                          // than typing to let target apps process deletions reliably
+        }
+    }
+
     // MARK: - Paste Mode (Primary)
 
     /// Inject text by copying to clipboard and simulating Cmd+V.

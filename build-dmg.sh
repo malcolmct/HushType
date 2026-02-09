@@ -30,7 +30,7 @@ VOLUME_NAME="$APP_NAME"
 # Use distribution entitlements (no App Sandbox) for Developer ID builds.
 # The sandbox entitlements in HushType.entitlements would block Sparkle's
 # installer and prevent CGEvent keystroke simulation.
-ENTITLEMENTS="$SCRIPT_DIR/Sources/HushType/Resources/HushType-distribution.entitlements"
+ENTITLEMENTS="$SCRIPT_DIR/HushType-distribution.entitlements"
 
 # Parse arguments
 SKIP_BUILD=false
@@ -88,7 +88,7 @@ if [ -n "$SIGN_IDENTITY" ]; then
             codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$xpc"
         done
         # Sign any helper executables inside Sparkle
-        find "$SIGN_BUNDLE/Contents/Frameworks/Sparkle.framework" -name "Autoupdate" -o -name "Updater" -o -name "Installer" | while read helper; do
+        find "$SIGN_BUNDLE/Contents/Frameworks/Sparkle.framework" \( -name "Autoupdate" -o -name "Updater" -o -name "Installer" \) | while read helper; do
             if [ -f "$helper" ] && file "$helper" | grep -q "Mach-O"; then
                 codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$helper"
             fi
@@ -120,12 +120,28 @@ hdiutil detach "/Volumes/$VOLUME_NAME" 2>/dev/null || true
 rm -rf "$DMG_STAGING"
 rm -f "$DMG_PATH"
 
-# Create staging directory with app and Applications alias
+# Create staging directory with app, Applications alias, user guide, and background
 mkdir -p "$DMG_STAGING"
 # Use ditto instead of cp -R to properly preserve macOS app bundle
 # metadata (resource forks, extended attributes, code signatures)
 ditto "$APP_BUNDLE" "$DMG_STAGING/$APP_NAME.app"
 ln -s /Applications "$DMG_STAGING/Applications"
+
+# Include the User Guide if it exists (prefer PDF over docx)
+USER_GUIDE_PDF="$SCRIPT_DIR/HushType-User-Guide.pdf"
+USER_GUIDE_DOCX="$SCRIPT_DIR/HushType-User-Guide.docx"
+if [ -f "$USER_GUIDE_PDF" ]; then
+    cp "$USER_GUIDE_PDF" "$DMG_STAGING/HushType User Guide.pdf"
+    echo "  Included: HushType User Guide.pdf"
+elif [ -f "$USER_GUIDE_DOCX" ]; then
+    cp "$USER_GUIDE_DOCX" "$DMG_STAGING/HushType User Guide.docx"
+    echo "  Included: HushType User Guide.docx (PDF not found)"
+fi
+
+# Note: the DMG background image is copied onto the mounted volume later
+# (not into staging) because Finder's AppleScript can't resolve hidden paths
+# that were baked in via hdiutil create -srcfolder.
+BG_IMAGE="$SCRIPT_DIR/dmg-background.png"
 
 # Verify the app was copied
 if [ ! -f "$DMG_STAGING/$APP_NAME.app/Contents/MacOS/$APP_NAME" ]; then
@@ -138,9 +154,9 @@ echo "  Staged: $APP_NAME.app and Applications alias"
 # Create a temporary read-write DMG in /tmp (avoids iCloud interference)
 DMG_TEMP="$(mktemp -d)/.dmg-temp.dmg"
 
-# Calculate size: app size + 20MB headroom for filesystem overhead
-APP_SIZE_KB=$(du -sk "$DMG_STAGING/$APP_NAME.app" | cut -f1)
-DMG_SIZE_KB=$(( APP_SIZE_KB + 51200 ))
+# Calculate size: total staging content + 20MB headroom for filesystem overhead
+STAGING_SIZE_KB=$(du -sk "$DMG_STAGING" | cut -f1)
+DMG_SIZE_KB=$(( STAGING_SIZE_KB + 51200 ))
 
 hdiutil create -volname "$VOLUME_NAME" \
     -srcfolder "$DMG_STAGING" \
@@ -156,8 +172,24 @@ echo "  Configuring Finder layout…"
 MOUNT_OUTPUT=$(hdiutil attach -readwrite -noverify "$DMG_TEMP")
 MOUNT_DIR=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed 's/.*\/Volumes/\/Volumes/')
 
-# Use AppleScript to set icon positions, window size, and view mode
-# so the user sees the classic "drag app to Applications" layout
+# Copy background image directly onto the mounted volume.
+# This must happen AFTER mounting (not in staging) because Finder's AppleScript
+# can only resolve files that exist on the live filesystem of the mounted volume.
+if [ -f "$BG_IMAGE" ]; then
+    mkdir "$MOUNT_DIR/.background"
+    cp "$BG_IMAGE" "$MOUNT_DIR/.background/background.png"
+    echo "  Copied background image to volume"
+fi
+
+# Use AppleScript to set icon positions, window size, background image,
+# and view mode so the user sees the classic "drag app to Applications" layout
+# with the User Guide visible below.
+#
+# Layout (660×440 window):
+#   - HushType.app at (140, 185) — left of centre
+#   - Applications at (520, 185) — right of centre
+#   - User Guide at (330, 345) — bottom centre
+#   - Background image from .background/background.png
 osascript <<APPLESCRIPT
 tell application "Finder"
     tell disk "$VOLUME_NAME"
@@ -165,12 +197,19 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set bounds of container window to {400, 200, 900, 480}
+        set bounds of container window to {400, 150, 1060, 590}
         set viewOptions to the icon view options of container window
         set arrangement of viewOptions to not arranged
         set icon size of viewOptions to 80
-        set position of item "$APP_NAME.app" of container window to {120, 140}
-        set position of item "Applications" of container window to {380, 140}
+        set background picture of viewOptions to file ".background:background.png"
+        set position of item "$APP_NAME.app" of container window to {140, 185}
+        set position of item "Applications" of container window to {520, 185}
+        try
+            set position of item "HushType User Guide.pdf" of container window to {330, 345}
+        end try
+        try
+            set position of item "HushType User Guide.docx" of container window to {330, 345}
+        end try
         close
         open
         update without registering applications
@@ -178,9 +217,11 @@ tell application "Finder"
 end tell
 APPLESCRIPT
 
-# The AppleScript "update without registering applications" can mark the app
-# with the hidden flag — clear it so Finder displays it
+# The AppleScript "update without registering applications" can mark items
+# with the hidden flag — clear it so Finder displays them
 chflags nohidden "$MOUNT_DIR/$APP_NAME.app"
+[ -f "$MOUNT_DIR/HushType User Guide.pdf" ] && chflags nohidden "$MOUNT_DIR/HushType User Guide.pdf"
+[ -f "$MOUNT_DIR/HushType User Guide.docx" ] && chflags nohidden "$MOUNT_DIR/HushType User Guide.docx"
 
 # Wait for .DS_Store to be flushed to disk
 sync

@@ -446,9 +446,160 @@ class TranscriptionEngine {
         let fullText = results.last?.text
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        print("[TranscriptionEngine] Using final result: \"\(fullText)\"")
+        print("[TranscriptionEngine] Raw Whisper output: \"\(fullText)\"")
 
-        return fullText
+        let cleaned = removeRepeatedPhrases(fullText)
+        if cleaned != fullText {
+            print("[TranscriptionEngine] Post-processed: \"\(cleaned)\"")
+        }
+
+        return cleaned
+    }
+
+    // MARK: - Post-processing
+
+    /// Light post-processing for Whisper output. Three conservative passes:
+    /// - Pass 1: Consecutive duplicate sentences ("Hello. Hello." → "Hello.")
+    /// - Pass 2: Trailing echo — last N words echo the tail of the preceding text
+    ///   ("...seems to be working nicely. Seems to be working nicely." → "...seems to be working nicely.")
+    /// - Pass 3: Trailing phrase loop — a short phrase (1–4 words) repeating at the end
+    ///   ("...went to the store the store the store" → "...went to the store")
+    private func removeRepeatedPhrases(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 10 else { return trimmed }
+
+        // --- Pass 1: Remove consecutive duplicate sentences ---
+        let sentences = splitIntoSentences(trimmed)
+
+        var deduped: [String] = []
+        for sentence in sentences {
+            let normalised = sentence.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if let last = deduped.last {
+                let lastNorm = last.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                if lastNorm == normalised { continue }
+            }
+            deduped.append(sentence)
+        }
+
+        var result = deduped.joined(separator: " ")
+
+        // --- Pass 2: Remove trailing echo ---
+        result = removeTrailingEcho(result)
+
+        // --- Pass 3: Remove trailing phrase loop ---
+        result = removeTrailingPhraseLoop(result)
+
+        // --- Pass 4: Two spaces after sentence-ending punctuation ---
+        // Use regex to replace any whitespace after . ! ? (before the next word)
+        // with exactly two spaces. This handles cases where there's already 1, 2 or 3 spaces.
+        result = result.replacingOccurrences(
+            of: "([.!?])\\s+(?=\\S)",
+            with: "$1  ",
+            options: .regularExpression
+        )
+
+        return result
+    }
+
+    /// Split text into sentences on `.!?` boundaries, keeping delimiters attached.
+    private func splitIntoSentences(_ text: String) -> [String] {
+        var sentences: [String] = []
+        var current = ""
+        for char in text {
+            current.append(char)
+            if ".!?".contains(char) {
+                let s = current.trimmingCharacters(in: .whitespaces)
+                if !s.isEmpty { sentences.append(s) }
+                current = ""
+            }
+        }
+        let remainder = current.trimmingCharacters(in: .whitespaces)
+        if !remainder.isEmpty { sentences.append(remainder) }
+        return sentences
+    }
+
+    /// Detect and remove a trailing sequence of words that echoes the end of the preceding text.
+    /// Requires at least 3 matching words to avoid false positives.
+    private func removeTrailingEcho(_ text: String) -> String {
+        let words = text.split(separator: " ").map(String.init)
+        guard words.count >= 6 else { return text }
+
+        let maxEchoLen = words.count / 2
+        for echoLen in stride(from: maxEchoLen, through: 3, by: -1) {
+            let echoWords = Array(words.suffix(echoLen))
+            let precedingWords = Array(words.prefix(words.count - echoLen))
+            guard precedingWords.count >= echoLen else { continue }
+
+            let precedingTail = Array(precedingWords.suffix(echoLen))
+            var allMatch = true
+            for i in 0..<echoLen {
+                let a = precedingTail[i].lowercased()
+                    .trimmingCharacters(in: .punctuationCharacters)
+                let b = echoWords[i].lowercased()
+                    .trimmingCharacters(in: .punctuationCharacters)
+                if a != b {
+                    allMatch = false
+                    break
+                }
+            }
+
+            if allMatch {
+                var kept = precedingWords.joined(separator: " ")
+                while kept.last != nil && ".!?,;:".contains(kept.last!) {
+                    if kept.last == "." { break }
+                    kept.removeLast()
+                }
+                return kept.trimmingCharacters(in: .whitespaces)
+            }
+        }
+
+        return text
+    }
+
+    /// Detect and remove a short phrase (1–4 words) looping at the end of the text.
+    /// Whisper's decoder sometimes loops when audio trails off into silence,
+    /// producing e.g. "went to the store the store" or "like this like this like this".
+    /// For multi-word phrases (2+), requires just 2 total occurrences — nobody
+    /// naturally says "like this like this". For single words, requires 3 total
+    /// to avoid removing intentional emphasis like "really really".
+    private func removeTrailingPhraseLoop(_ text: String) -> String {
+        let words = text.split(separator: " ").map(String.init)
+        guard words.count >= 4 else { return text }
+
+        // Try phrase lengths from 4 words down to 1
+        for phraseLen in stride(from: min(4, words.count / 3), through: 1, by: -1) {
+            // The candidate phrase is the last phraseLen words
+            let phrase = Array(words.suffix(phraseLen))
+
+            // Count how many times it repeats consecutively from the end
+            var repetitions = 1
+            var pos = words.count - phraseLen * 2
+
+            while pos >= 0 {
+                let chunk = Array(words[pos..<(pos + phraseLen)])
+                let matches = zip(chunk, phrase).allSatisfy { a, b in
+                    a.lowercased().trimmingCharacters(in: .punctuationCharacters)
+                        == b.lowercased().trimmingCharacters(in: .punctuationCharacters)
+                }
+                if matches {
+                    repetitions += 1
+                    pos -= phraseLen
+                } else {
+                    break
+                }
+            }
+
+            // Multi-word phrases: 2 occurrences is enough (very unlikely to be intentional)
+            // Single words: need 3 to preserve "really really", "very very" etc.
+            let minRepetitions = phraseLen >= 2 ? 2 : 3
+            if repetitions >= minRepetitions {
+                let keepCount = words.count - (repetitions - 1) * phraseLen
+                let kept = Array(words.prefix(keepCount)).joined(separator: " ")
+                return kept.trimmingCharacters(in: .whitespaces)
+            }
+        }
+
+        return text
     }
 }
 

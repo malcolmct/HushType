@@ -11,7 +11,7 @@ class SettingsWindowController {
         appSettings: AppSettings
     ) -> NSWindow {
         let windowWidth: CGFloat = 460
-        let windowHeight: CGFloat = 900
+        let windowHeight: CGFloat = 980
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
@@ -25,7 +25,7 @@ class SettingsWindowController {
 
         // Lock horizontal size, allow vertical resizing for short screens
         window.minSize = NSSize(width: windowWidth, height: 400)
-        window.maxSize = NSSize(width: windowWidth, height: windowHeight)
+        window.maxSize = NSSize(width: windowWidth, height: 2000)
 
         // Add an empty toolbar so macOS centers the title in the title bar
         // (without a toolbar, modern macOS left-aligns the title next to the traffic lights)
@@ -43,7 +43,7 @@ class SettingsWindowController {
         scrollView.drawsBackground = false
 
         // The document view holds all controls — its height is the full form height
-        let contentHeight: CGFloat = 900
+        let contentHeight: CGFloat = 980
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: contentHeight))
         contentView.autoresizingMask = [.width]
 
@@ -101,6 +101,23 @@ class SettingsWindowController {
             frame: NSRect(x: controlX, y: y - 62, width: controlWidth, height: 28)
         )
         contentView.addSubview(hotkeyHint)
+        y -= 82
+
+        // Real-time transcription toggle (experimental)
+        let realtimeLabel = makeLabel("Real-time:", frame: NSRect(x: labelX, y: y - 26, width: labelWidth, height: 20))
+        let realtimeCheck = NSButton(checkboxWithTitle: "Real-time transcription (experimental)", target: nil, action: nil)
+        realtimeCheck.frame = NSRect(x: controlX, y: y - 26, width: controlWidth, height: 20)
+        realtimeCheck.state = appSettings.useRealtimeTranscription ? .on : .off
+        realtimeCheck.target = SettingsActions.shared
+        realtimeCheck.action = #selector(SettingsActions.realtimeToggled(_:))
+        contentView.addSubview(realtimeLabel)
+        contentView.addSubview(realtimeCheck)
+
+        let realtimeHint = makeHintLabel(
+            "Transcribe and type text while you speak, instead of waiting for key release. May produce timing artefacts in some apps. Requires Accessibility permission.",
+            frame: NSRect(x: controlX, y: y - 62, width: controlWidth, height: 28)
+        )
+        contentView.addSubview(realtimeHint)
         y -= 82
 
         // MARK: - Model Section
@@ -446,6 +463,11 @@ class SettingsActions: NSObject {
                 }
             }
         }
+    }
+
+    @objc func realtimeToggled(_ sender: NSButton) {
+        AppSettings.shared.useRealtimeTranscription = (sender.state == .on)
+        print("[Settings] Real-time transcription: \(sender.state == .on ? "on" : "off")")
     }
 
     @objc func startAtLoginToggled(_ sender: NSButton) {

@@ -69,6 +69,17 @@ class AudioManager {
         isRecording = true
     }
 
+    /// Return a snapshot of the current sample buffer without stopping recording.
+    /// Used by real-time transcription to periodically transcribe accumulated audio
+    /// while the user is still speaking.
+    func getCurrentSamples() -> [Float] {
+        var snapshot: [Float] = []
+        bufferQueue.sync {
+            snapshot = sampleBuffer
+        }
+        return snapshot
+    }
+
     /// Stop recording and return all captured samples as 16kHz mono Float32.
     @discardableResult
     func stopRecording() -> [Float] {
