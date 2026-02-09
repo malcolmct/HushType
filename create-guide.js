@@ -23,7 +23,7 @@ const {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const VERSION = "Version 1.25";
+const VERSION = "Version 1.26";
 const CREATION_DATE = "8 February 2026";
 const OUTPUT_FILE = path.join(__dirname, "HushType-User-Guide.docx");
 const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
@@ -220,8 +220,8 @@ function buildContent() {
       logoW = logoData.readUInt32BE(16);
       logoH = logoData.readUInt32BE(20);  // IHDR: width at 16, height at 20
     }
-    // Scale logo to max 300pt wide, 80pt tall
-    const scale = Math.min(300 / logoW, 80 / logoH, 1);
+    // Scale logo to max 450pt wide, 180pt tall
+    const scale = Math.min(450 / logoW, 180 / logoH, 1);
     children.push(
       new Paragraph({
         spacing: { after: 80 },
