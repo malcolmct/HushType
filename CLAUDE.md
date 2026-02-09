@@ -11,7 +11,6 @@ HushType is a macOS menu-bar dictation app that transcribes speech to text entir
 - **Permissions required:**
   - Microphone access (for audio capture)
   - Accessibility access (for injecting text into other apps via CGEvent)
-  - App Management (for Sparkle auto-updates to replace the app bundle)
 
 ## Tech Stack
 
@@ -181,9 +180,9 @@ A third mode — **incremental injection** — is used by real-time transcriptio
 
 Both dialogs include an "Open Settings" button that navigates directly to the Accessibility pane (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`). Records the current version when accessibility is confirmed granted. Also re-checks accessibility after the model finishes loading via `recheckAccessibility()`.
 
-Also handles **App Management** permission: on first launch, if the app is installed in `/Applications`, it triggers the native macOS App Management consent dialog by attempting a harmless write inside the app bundle (`Contents/.permission_check`). On macOS 13+, writing to an app bundle in `/Applications` requires App Management permission — macOS intercepts the write and shows its own system dialog asking the user to grant it. If the user grants permission, the temporary file is created and immediately deleted; if they deny, the write fails harmlessly. This is much better UX than directing users to manually locate App Management in System Settings (there is no deep-link URL scheme for that pane). If the native dialog doesn't appear for any reason, the code falls back to manual instructions. This must happen before the first Sparkle update — otherwise Sparkle's installer helper is blocked by macOS and the update fails on the first attempt. The prompt is tracked via `UserDefaults` (`AppManagementPermissionPrompted`) so it only fires once.
+**App Management permission is NOT required.** Since HushType is signed with the developer's own Developer ID and Sparkle updates are also signed with the same Developer ID, macOS Gatekeeper recognises the matching code signature and allows the app to update itself in `/Applications` without explicit App Management permission. If an edge case ever arises where macOS blocks an update, Sparkle reports the failure and the user can grant permission manually in System Settings. This is far better UX than pre-prompting for a confusing permission.
 
-Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines all three permission checks; `isAppManagementRelevant` returns true only when the app is in `/Applications` (controls whether the App Management row appears in the permissions window); `checkAppManagementPermission()` queries the macOS TCC database via `/usr/bin/sqlite3` subprocess (the old bundle-write test was unreliable because an app can always write to its own bundle — TCC App Management only restricts other processes); results are cached for 3 seconds to avoid excessive subprocess spawning during polling; `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately; `requestAppManagementSilent()` opens System Settings to the App Management pane (invalidates the TCC cache first so the next poll picks up changes).
+Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines both permission checks (microphone + accessibility); `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately.
 
 **`AppSettings`** — Singleton backed by `UserDefaults.standard`. Also defines the `TriggerKey` enum (`fn`, `control`, `option`) and the `MenuBarIconStyle` enum (`system`, `custom`). Shift and Command are excluded from trigger keys because they conflict heavily with system and app shortcuts. The `startAtLogin` property is NOT stored in UserDefaults — it uses `SMAppService.mainApp` (ServiceManagement framework) as its source of truth, which integrates directly with System Settings > Login Items. Settings:
 
@@ -216,13 +215,13 @@ Aggregate helper methods (used by `PermissionsWindowController`): `allPermission
 
 **`AboutWindowController`** — Static factory (`createWindow()`) building a 360x400 About window displaying the app icon, name, **dynamic version and build number** (read from `Bundle.main` `CFBundleShortVersionString` and `CFBundleVersion` at runtime), a brief description, copyright notice (© 2026 Malcolm Taylor), and a scrollable open-source acknowledgements section with full MIT license text for both WhisperKit (Argmax, Inc.) and OpenAI Whisper.
 
-**`PermissionsWindowController`** — Snagit-style permissions window shown on launch when any required permission is not yet granted. Static factory (`createWindow(permissionManager:)`) returning an NSWindow, matching the pattern used by Settings and About windows. Self-retains via a static `retainedInstance` while open (released on `windowWillClose` via NSWindowDelegate). The rows are built dynamically: Microphone and Accessibility are always shown; App Management is only included when the app is installed in `/Applications` (checked via `PermissionManager.isAppManagementRelevant`), since the permission isn't needed when running from a build directory. The window height adjusts to fit the number of rows. Contains:
-  - SF Symbol icon (`mic.fill`, `hand.raised.fill`, `gearshape.fill`)
+**`PermissionsWindowController`** — Snagit-style permissions window shown on launch when any required permission is not yet granted. Static factory (`createWindow(permissionManager:)`) returning an NSWindow, matching the pattern used by Settings and About windows. Self-retains via a static `retainedInstance` while open (released on `windowWillClose` via NSWindowDelegate). Shows two permission rows (Microphone and Accessibility). The window height adjusts dynamically to fit the number of rows. Contains:
+  - SF Symbol icon (`mic.fill`, `hand.raised.fill`)
   - Bold title and description text
   - Right side: blue "Enable" button (when not granted) or green checkmark + "Enabled!" label (when granted)
-- Counter label ("N of M Enabled", where M is the number of visible rows) and a "Done" button
+- Counter label ("N of 2 Enabled") and a "Done" button
 
-A 1-second polling timer (`refreshStatus()`) checks all three permission states and updates the UI live as the user grants access. Enable button actions: Microphone triggers `AVCaptureDevice.requestAccess` (system dialog) or opens System Settings if already denied; Accessibility opens System Settings directly; App Management attempts a bundle write (triggers native macOS consent dialog) or opens System Settings as fallback. The window replaces the old sequential-alert approach from `checkPermissions()` — instead of three separate NSAlert dialogs, all permissions are visible at once with live status feedback.
+A 1-second polling timer (`refreshStatus()`) checks both permission states and updates the UI live as the user grants access. Enable button actions: Microphone triggers `AVCaptureDevice.requestAccess` (system dialog) or opens System Settings if already denied; Accessibility opens System Settings directly. The window replaces the old sequential-alert approach from `checkPermissions()` — instead of separate NSAlert dialogs, all permissions are visible at once with live status feedback.
 
 ## Menu Bar Icon
 
@@ -452,7 +451,7 @@ A Word document user guide (`HushType-User-Guide.docx`) is generated by the `cre
 
 **Important:** Whenever significant changes are made to HushType — new settings, UI changes, new menu items, behaviour changes, or permission requirements — the user guide must be updated to match. Edit `create-guide.js` and regenerate the docx by running `node create-guide.js`. The guide includes a version number (matching the app's `CFBundleShortVersionString` from Info.plist) which should be updated when releasing a new version.
 
-**Screenshots:** The guide embeds real screenshots from `docs/screenshots/` when they exist, falling back to grey placeholder boxes when they don't. The `SCREENSHOT_MAP` at the top of `create-guide.js` maps each placeholder caption to its expected filename. Current mappings: `dmg-install.png`, `menubar-icon.png`, `permission-window.png`, `permission-microphone.png`, `permission-accessibility.png`, `permission-app-management.png`, `menubar-dropdown.png`, `settings-panel.png`. Images are auto-scaled to fit the page width (max 6.5 inches / 468pt, capped at 4 inches tall).
+**Screenshots:** The guide embeds real screenshots from `docs/screenshots/` when they exist, falling back to grey placeholder boxes when they don't. The `SCREENSHOT_MAP` at the top of `create-guide.js` maps each placeholder caption to its expected filename. Current mappings: `dmg-install.png`, `menubar-icon.png`, `permission-window.png`, `permission-microphone.png`, `permission-accessibility.png`, `menubar-dropdown.png`, `settings-panel.png`. Images are auto-scaled to fit the page width (max 6.5 inches / 468pt, capped at 4 inches tall).
 
 ## Important Implementation Notes
 

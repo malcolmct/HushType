@@ -23,7 +23,7 @@ const {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const VERSION = "Version 1.22";
+const VERSION = "Version 1.23";
 const CREATION_DATE = "8 February 2026";
 const OUTPUT_FILE = path.join(__dirname, "HushType-User-Guide.docx");
 const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
@@ -35,7 +35,6 @@ const SCREENSHOT_MAP = {
   "HushType permissions window showing permission status": "permission-window.png",
   "macOS microphone permission dialog": "permission-microphone.png",
   "System Settings → Privacy & Security → Accessibility with HushType enabled": "permission-accessibility.png",
-  "macOS App Management permission dialog": "permission-app-management.png",
   "HushType menu bar dropdown": "menubar-dropdown.png",
   "HushType Settings panel": "settings-panel.png",
 };
@@ -219,7 +218,7 @@ function buildContent() {
     let logoW = 400, logoH = 80;
     if (logoData.length > 24 && logoData[1] === 0x50 && logoData[2] === 0x4E && logoData[3] === 0x47) {
       logoW = logoData.readUInt32BE(16);
-      logoH = logoData.readUInt32BE(18);
+      logoH = logoData.readUInt32BE(20);  // IHDR: width at 16, height at 20
     }
     // Scale logo to max 300pt wide, 80pt tall
     const scale = Math.min(300 / logoW, 80 / logoH, 1);
@@ -305,7 +304,7 @@ function buildContent() {
 
   // --- Setting Up Permissions ---
   children.push(heading("Setting Up Permissions", HeadingLevel.HEADING_1));
-  children.push(body("HushType needs three macOS permissions to work correctly: Microphone, Accessibility, and App Management. On first launch, HushType displays a **permissions window** that shows the status of each required permission at a glance. Each row shows whether the permission is already enabled or still needs to be granted, and an **Enable** button lets you grant it directly."));
+  children.push(body("HushType needs two macOS permissions to work correctly: Microphone and Accessibility. On first launch, HushType displays a **permissions window** that shows the status of each required permission at a glance. Each row shows whether the permission is already enabled or still needs to be granted, and an **Enable** button lets you grant it directly."));
   children.push(...screenshotBlock("HushType permissions window showing permission status"));
   children.push(body("The permissions window updates live \u2014 as you grant each permission, its status changes to a green checkmark. You can close the window once all permissions are enabled. This section explains each permission in detail in case you need to set them up manually."));
   children.push(tipBox("Tip: You can always check or change these permissions later in System Settings \u2192 Privacy & Security."));
@@ -337,14 +336,6 @@ function buildContent() {
   children.push(body('**3. Click "+" and re-add HushType from your Applications folder.**'));
   children.push(body("**4. Confirm the toggle is on.**"));
   children.push(body("This only takes a few seconds and is a one-time step after each update. HushType detects when this has happened and will remind you."));
-
-  // 3. App Management
-  children.push(heading("3. App Management", HeadingLevel.HEADING_2));
-  children.push(body("**What it does:** Allows HushType\u2019s built-in updater to replace the app with a new version."));
-  children.push(body("**How to enable:** Click the **Enable** button next to App Management in the permissions window. macOS will show a system dialog asking whether you want to allow HushType to manage app updates. Click **Allow** to grant the permission."));
-  children.push(...screenshotBlock("macOS App Management permission dialog"));
-  children.push(body('**If you accidentally denied it:** Open **System Settings \u2192 Privacy & Security**, scroll down to **App Management**, find HushType in the list, and toggle it on.'));
-  children.push(tipBox("Without App Management permission, the first automatic update will fail. macOS will prompt you again at that point, so the permission can also be granted then. You only need to grant this once."));
 
   // Permissions at a glance
   children.push(heading("Permissions at a glance", HeadingLevel.HEADING_2));
@@ -396,13 +387,6 @@ function buildContent() {
             permCell("Accessibility", { bold: true, colWidth: permColWidths[0] }),
             permCell("Text copied to clipboard instead of typed", { colWidth: permColWidths[1] }),
             permCell("Manually add in System Settings", { colWidth: permColWidths[2] }),
-          ],
-        }),
-        new TableRow({
-          children: [
-            permCell("App Management", { bold: true, colWidth: permColWidths[0] }),
-            permCell("First auto-update may fail", { colWidth: permColWidths[1] }),
-            permCell("System dialog on first launch", { colWidth: permColWidths[2] }),
           ],
         }),
       ],
@@ -490,7 +474,7 @@ function buildContent() {
   children.push(body("Right-click the app in your Applications folder and choose **Open**. macOS may show a warning for apps downloaded outside the App Store. Clicking Open from the right-click menu bypasses Gatekeeper for that specific launch. You only need to do this once."));
 
   children.push(heading("Updates are failing", HeadingLevel.HEADING_2));
-  children.push(body("Make sure App Management permission is enabled in System Settings \u2192 Privacy & Security \u2192 App Management. If the first update fails, macOS should prompt you to allow it \u2014 accept that prompt and try again."));
+  children.push(body("Make sure you have a working internet connection and try again from the menu bar: click the HushType icon and choose **Check for Updates**. If the update still fails, try downloading the latest version manually from the HushType website and replacing the app in your Applications folder."));
 
   children.push(heading("Transcription is inaccurate or repeats phrases", HeadingLevel.HEADING_2));
   children.push(body('Try switching to a larger Whisper model in Settings (for example, from "small.en" to "medium.en" or "large-v3"). Larger models are significantly more accurate, especially with background noise, accents, or complex vocabulary. If you are speaking a language other than English, make sure the correct language is selected in Settings and that you are using a multilingual model (one without the ".en" suffix).'));
