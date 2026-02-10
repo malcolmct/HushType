@@ -109,7 +109,7 @@ If no Accessibility permission → falls back to copying text to clipboard
 
 **`main.swift`** — Entry point. Checks for Apple Silicon via `uname()`. Sets activation policy to `.accessory` (menu bar only). Creates `AppDelegate` and runs the app.
 
-**`AppDelegate`** — Central orchestrator. Owns all managers and the Sparkle updater controller. Sets up the NSStatusItem menu bar with items: status text (tag 1), model info (tag 2), Settings, Check for Updates, About (with custom icon), and Quit (no keyboard shortcuts — inappropriate for a background app). Coordinates the recording lifecycle: `startRecording()` → `stopRecordingAndTranscribe()`. Manages UI state for overlay, progress window, and menu bar icon (system SF Symbol or custom branded icon, with red tint when recording). Listens for `.modelDidChange`, `.triggerKeyDidChange`, and `.menuBarIconDidChange` notifications. Loads the Whisper model asynchronously on launch and re-checks accessibility once loading completes. On launch, calls `showPermissionsWindowIfNeeded()` which shows the `PermissionsWindowController` if any permission is missing (replacing the old `checkPermissions()` sequential-alert approach).
+**`AppDelegate`** — Central orchestrator. Owns all managers and the Sparkle updater controller. Sets up the NSStatusItem menu bar with items: status text (tag 1), model info (tag 2), Settings, Check for Updates, About (with custom icon), and Quit (no keyboard shortcuts — inappropriate for a background app). Coordinates the recording lifecycle: `startRecording()` → `stopRecordingAndTranscribe()`. Manages UI state for overlay, progress window, and menu bar icon (system SF Symbol or custom branded icon, with red tint when recording). The menu bar icon is initially hidden (`statusItem.isVisible = false`) if permissions are not yet granted, and made visible when `.allRequiredPermissionsGranted` is received. Listens for `.modelDidChange`, `.triggerKeyDidChange`, `.menuBarIconDidChange`, and `.allRequiredPermissionsGranted` notifications. Loads the Whisper model asynchronously on launch and re-checks accessibility once loading completes. On launch, calls `showPermissionsWindowIfNeeded()` which shows the `PermissionsWindowController` if any permission is missing (replacing the old `checkPermissions()` sequential-alert approach).
 
 **`HotkeyManager`** — Detects the configured trigger key hold/release via `NSEvent.addGlobalMonitorForEvents` and `addLocalMonitorForEvents` for `.flagsChanged`. Reads `AppSettings.shared.triggerKey` on each event to determine which modifier to detect. Dynamically builds an exclusion set of all other modifiers so the trigger key must be pressed alone. Deduplicates events between global and local monitors using timestamp comparison. Dispatches `onKeyDown`/`onKeyUp` callbacks to main thread. Call `restartListening()` after changing the trigger key setting.
 
@@ -132,7 +132,7 @@ Transcription uses `DecodingOptions` tuned for accuracy:
 - `compressionRatioThreshold: 2.0`, `logProbThreshold: -0.7`, `noSpeechThreshold: 0.5` (stricter thresholds)
 - Uses the **last** result from WhisperKit (best quality after temperature fallback)
 
-Also defines `supportedLanguages`: a static list of 30 languages (code + display name) used by the Settings UI language picker.
+Also defines `supportedLanguages`: a static list of 30 languages (code + display name) sorted alphabetically (Auto-detect first, then A–Z) used by the Settings UI language picker.
 
 Post-processing: `removeRepeatedPhrases(_:)` runs on every transcription result with two conservative passes:
 1. **Sentence dedup** — removes consecutive duplicate sentences (case-insensitive)
@@ -157,9 +157,9 @@ Both modes use `CGEventSource(stateID: .hidSystemState)` and post to `.cghidEven
 
 Both dialogs include an "Open Settings" button that navigates directly to the Accessibility pane (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`). Records the current version when accessibility is confirmed granted. Also re-checks accessibility after the model finishes loading via `recheckAccessibility()`.
 
-**App Management permission** is recommended but not required for core functionality. It allows Sparkle to install automatic updates in `/Applications`. Normally, matching Developer ID code signatures mean macOS allows updates without this permission, but edge cases can arise where macOS blocks an update. The permissions window includes an App Management row with a "Setup…" button that opens System Settings to Privacy & Security and shows inline guidance directing the user to scroll down to "App Management" and toggle on HushType. There is no public API to check App Management status or deep-link to the App Management section, so the row never auto-detects — its Setup button always remains visible. The counter only tracks the 2 required permissions (Microphone + Accessibility).
+**App Management permission** is recommended but not required for core functionality. It allows Sparkle to install automatic updates in `/Applications`. Normally, matching Developer ID code signatures mean macOS allows updates without this permission, but edge cases can arise where macOS blocks an update. The permissions window includes an App Management row with a "Setup…" button that opens System Settings to Privacy & Security and shows inline guidance directing the user to scroll down to "App Management" and toggle on HushType. The guidance also explains the alternative of clicking the plus button below the list to add HushType manually from the Applications folder (since HushType won't appear in the App Management list until macOS has blocked an update attempt). There is no public API to check App Management status or deep-link to the App Management section, so the row never auto-detects — its Setup button always remains visible. The counter only tracks the 2 required permissions (Microphone + Accessibility).
 
-Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines both required permission checks (microphone + accessibility); `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately; `openPrivacySecuritySettings()` opens Privacy & Security for App Management navigation.
+Aggregate helper methods (used by `PermissionsWindowController`): `allPermissionsGranted()` combines both required permission checks (microphone + accessibility); `requestMicrophonePermissionSilent()` triggers system dialog or opens Settings without custom alerts; `openAccessibilitySettingsDirectly()` opens Settings immediately; `openPrivacySecuritySettings()` opens Privacy & Security for App Management navigation — terminates System Settings first if it's already running (checks both `com.apple.systempreferences` and `com.apple.SystemSettings` bundle IDs), with a 0.5s delay before reopening, so it navigates to the correct root page instead of staying at a previous section. Also defines `Notification.Name.allRequiredPermissionsGranted`.
 
 **`AppSettings`** — Singleton backed by `UserDefaults.standard`. Also defines the `TriggerKey` enum (`fn`, `control`, `option`) and the `MenuBarIconStyle` enum (`system`, `custom`). Shift and Command are excluded from trigger keys because they conflict heavily with system and app shortcuts. The `startAtLogin` property is NOT stored in UserDefaults — it uses `SMAppService.mainApp` (ServiceManagement framework) as its source of truth, which integrates directly with System Settings > Login Items. Settings:
 
@@ -178,26 +178,32 @@ Aggregate helper methods (used by `PermissionsWindowController`): `allPermission
 
 **`ModelProgressWindow`** — Non-activating `NSPanel` (360x120 px) centered on screen. Shows title, progress bar (`NSProgressIndicator`), percentage, and status text. Only appears when downloading (bundled/cached models skip it). Created lazily on first progress callback.
 
-**`SettingsWindowController`** — Static factory (`createWindow()`) building a 460-wide settings window wrapped in an `NSScrollView` for small-screen support (auto-hiding scrollers, min height 400, resizable vertically). Uses an empty `NSToolbar` with `.unifiedCompact` style to center the window title. Always scrolls to the top of the form when opened. Sections:
+**`SettingsWindowController`** — Static factory (`createWindow()`) building a 460-wide settings window wrapped in an `NSScrollView` for small-screen support (auto-hiding scrollers, min height 400, resizable vertically). Uses an empty `NSToolbar` with `.unifiedCompact` style to center the window title. Always scrolls to the top of the form when opened. Layout uses indented controls: `labelX=52, controlX=186, controlWidth=224, labelWidth=126`, with section backgrounds at `inset=38`. Sections:
 - **General**: "Start HushType at login" checkbox (uses SMAppService, re-reads actual state after toggle in case registration fails)
 - **Activation**: Dropdown (`NSPopUpButton`) to select the trigger key from all `TriggerKey` cases
-- **Whisper Model**: Current model display, advanced checkbox revealing model picker dropdown (tag 101) and hint (tag 102)
-- **Language**: Dropdown populated from `TranscriptionEngine.supportedLanguages` (30 languages + auto-detect). When a non-English language is selected and the current model has an `.en` suffix, the handler auto-switches to the multilingual equivalent (e.g. `small.en` → `small`) and triggers a model reload.
+- **Whisper Model**: Current model display (tag 100), advanced checkbox revealing model picker dropdown (tag 101) and hint (tag 102). When the checkbox is toggled, the model section background expands/contracts and all sections below shift down/up by 72pt. The window also resizes to accommodate, capped to screen height.
+- **Language**: Dropdown populated from `TranscriptionEngine.supportedLanguages` (30 languages + auto-detect, sorted alphabetically). When a non-English language is selected and the current model has an `.en` suffix, the handler auto-switches to the multilingual equivalent (e.g. `small.en` → `small`) and triggers a model reload.
 - **Text Injection**: Radio buttons for paste (tag 1) vs keystrokes (tag 2)
 - **Audio Input**: Dropdown of available microphone devices
 - **Display**: Checkbox for recording overlay, popup for menu bar icon style (system SF Symbol or custom HushType icon)
 
-`SettingsActions` (singleton `NSObject` subclass) handles UI callbacks including `triggerKeyChanged(_:)`, `languageChanged(_:)`, `startAtLoginToggled(_:)`, `menuBarIconStyleChanged(_:)`, and triggers model reloading in `TranscriptionEngine`.
+`SettingsActions` (singleton `NSObject` subclass) handles UI callbacks including `triggerKeyChanged(_:)`, `languageChanged(_:)`, `startAtLoginToggled(_:)`, `menuBarIconStyleChanged(_:)`, and triggers model reloading in `TranscriptionEngine`. Stores `weak var modelSectionBackground: NSBox?` (set during window construction) for the model section expansion logic — `NSBox.tag` is read-only so a direct reference is used instead. Tracks `modelExpanded: Bool` and uses a 72pt `modelExpansionDelta` to shift views below a computed Y threshold.
 
 **`AboutWindowController`** — Static factory (`createWindow()`) building a 360x400 About window displaying the app icon, name, **dynamic version and build number** (read from `Bundle.main` `CFBundleShortVersionString` and `CFBundleVersion` at runtime), a brief description, copyright notice (© 2026 Malcolm Taylor), and a scrollable open-source acknowledgements section with full MIT license text for both WhisperKit (Argmax, Inc.) and OpenAI Whisper.
 
-**`PermissionsWindowController`** — Snagit-style permissions window shown on launch when any required permission is not yet granted. Static factory (`createWindow(permissionManager:)`) returning an NSWindow, matching the pattern used by Settings and About windows. Self-retains via a static `retainedInstance` while open (released on `windowWillClose` via NSWindowDelegate). Shows two permission rows (Microphone and Accessibility). The window height adjusts dynamically to fit the number of rows. Contains:
-  - SF Symbol icon (`mic.fill`, `hand.raised.fill`)
+**`PermissionsWindowController`** — Snagit-style permissions window shown on launch when any required permission is not yet granted. Static factory (`createWindow(permissionManager:)`) returning an NSWindow, matching the pattern used by Settings and About windows. Self-retains via a static `retainedInstance` while open (released on `windowWillClose` via NSWindowDelegate). Shows three permission rows (Microphone, Accessibility, App Management). The window uses `level = .floating` and `hidesOnDeactivate = false` so it stays above other windows even when the user switches to System Settings. Contains:
+  - SF Symbol icon (`mic.fill`, `hand.raised.fill`, `arrow.triangle.2.circlepath`)
   - Bold title and description text
-  - Right side: blue "Enable" button (when not granted) or green checkmark + "Enabled!" label (when granted)
-- Counter label ("N of 2 Enabled") and a "Done" button
+  - Right side: blue "Enable" button (for required permissions, when not granted), gray "Setup…" button (for App Management), or green checkmark + "Enabled!" label (when granted)
+- Counter label ("N of 2 Required") and a "Done" button
 
-A 1-second polling timer (`refreshStatus()`) checks both permission states and updates the UI live as the user grants access. Enable button actions: Microphone triggers `AVCaptureDevice.requestAccess` (system dialog) or opens System Settings if already denied; Accessibility opens System Settings directly. The window replaces the old sequential-alert approach from `checkPermissions()` — instead of separate NSAlert dialogs, all permissions are visible at once with live status feedback.
+A 1-second polling timer (`refreshStatus()`) checks both required permission states (Microphone + Accessibility) and updates the UI live. When both required permissions are granted, posts `.allRequiredPermissionsGranted` notification (observed by AppDelegate to show the menu bar icon). If the user closes the window before granting all required permissions, `windowWillClose` calls `NSApp.terminate(nil)` — the app can't function without them.
+
+Enable button actions: Microphone triggers `AVCaptureDevice.requestAccess` (system dialog) or opens System Settings if already denied; Accessibility opens System Settings directly. App Management's "Setup…" button calls `permissionManager.openPrivacySecuritySettings()` and reveals inline guidance text.
+
+**Accessibility stale hint**: If the user clicks "Enable" for Accessibility but it remains ungranted after 5 polling cycles, a warning hint appears explaining that a previous HushType entry may need to be removed first. A "Restart HushType" button (orange-styled) appears alongside it, because `AXIsProcessTrusted()` is cached per-PID — macOS won't recognise a newly-added Accessibility entry for an already-running process. The restart uses `Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", "sleep 1 && open \"\(bundlePath)\""])` followed by `NSApp.terminate(nil)`. When accessibility is granted, the hint auto-hides and the window contracts.
+
+**Guidance area system**: Both the accessibility stale hint and App Management guidance can coexist simultaneously, stacked from bottom to top. Tracked by `staleHintVisible` and `appMgmtGuidanceVisible` booleans with `currentWindowGrowth: CGFloat`. `updateGuidanceArea()` computes the delta between needed and current growth, resizes the window, and shifts non-guidance subviews. `layoutGuidanceContent()` positions items from bottom to top.
 
 ## Menu Bar Icon
 
@@ -206,7 +212,7 @@ HushType offers two menu bar icon styles (configurable in Settings > Display):
 - **System**: Apple SF Symbol (`mic` / `mic.fill` when recording)
 - **Custom** (default): Branded icon designed to resemble a modified microphone with wave/whisper motifs, distinguishable from Apple's official mic icon
 
-Custom icons are template images (black on transparent, `isTemplate = true`) at 18×18 @1x and 36×36 @2x. The recording variants have thicker lines (processed via Pillow `MaxFilter` dilation). Icons are loaded from the app bundle's Resources directory, falling back to SF Symbols if not found. The menu bar icon tints red when recording.
+Custom icons are template images (black on transparent, `isTemplate = true`) at 18×18 @1x and 36×36 @2x. All icon variants have been thickened using sub-pixel dilation (2× upscale → Pillow `MaxFilter(3)` → LANCZOS downscale, giving 0.5px stroke thickening at original resolution) to appear more substantial alongside other menu bar icons. The recording variants have additional weight. Icons are loaded from the app bundle's Resources directory, falling back to SF Symbols if not found. The menu bar icon tints red when recording.
 
 The About menu item also displays a small version of the custom icon.
 
@@ -389,6 +395,7 @@ Sparkle flow:
 | `.modelDidChange` | `TranscriptionEngine` | Fired when a model finishes loading (success or fallback) |
 | `.triggerKeyDidChange` | `AppSettings.triggerKey` setter | Fired when the user changes the trigger key in Settings |
 | `.menuBarIconDidChange` | `AppSettings.menuBarIconStyle` setter | Fired when the user changes the icon style in Settings |
+| `.allRequiredPermissionsGranted` | `PermissionsWindowController` | Fired when both Microphone and Accessibility are granted; observed by AppDelegate to show the menu bar icon |
 
 ## Error Types
 
