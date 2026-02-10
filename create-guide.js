@@ -23,8 +23,8 @@ const {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const VERSION = "Version 1.34";
-const CREATION_DATE = "8 February 2026";
+const VERSION = "Version 1.35";
+const CREATION_DATE = "9 February 2026";
 const OUTPUT_FILE = path.join(__dirname, "HushType-User-Guide.docx");
 const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
 
@@ -299,14 +299,14 @@ function buildContent() {
   children.push(body("**3. Drag HushType to Applications.** In the window that opens, drag the HushType icon onto the Applications folder alias."));
   children.push(...screenshotBlock("DMG window showing drag-to-install layout"));
   children.push(body('**4. Launch HushType.** Open it from your Applications folder. You may need to right-click and choose "Open" the first time, then confirm in the dialog that appears.'));
-  children.push(body("HushType will appear as a small microphone icon in your menu bar (near the clock). There is no main window \u2014 the menu bar icon is the app."));
+  children.push(body("Once all required permissions are granted, HushType will appear as a small icon in your menu bar (near the clock). The icon is hidden until permissions are set up. There is no main window \u2014 the menu bar icon is the app."));
   children.push(...screenshotBlock("Menu bar showing HushType icon"));
 
   // --- Setting Up Permissions ---
   children.push(heading("Setting Up Permissions", HeadingLevel.HEADING_1));
-  children.push(body("HushType needs two macOS permissions to work correctly: Microphone and Accessibility. On first launch, HushType displays a **permissions window** that shows the status of each required permission at a glance. Each row shows whether the permission is already enabled or still needs to be granted, and an **Enable** button lets you grant it directly."));
+  children.push(body("HushType needs two macOS permissions to work correctly: **Microphone** and **Accessibility**. A third permission, **App Management**, is recommended for automatic updates but not required. On first launch, HushType displays a **permissions window** that shows the status of each permission at a glance. Each row shows whether the permission is already enabled or still needs to be granted."));
   children.push(...screenshotBlock("HushType permissions window showing permission status"));
-  children.push(body("The permissions window updates live \u2014 as you grant each permission, its status changes to a green checkmark. You can close the window once all permissions are enabled. This section explains each permission in detail in case you need to set them up manually."));
+  children.push(body("The permissions window stays in the foreground so it is not lost behind other windows. It updates live \u2014 as you grant each required permission, its status changes to a green checkmark. If you close the window before granting both Microphone and Accessibility, HushType will quit, since it cannot function without them. This section explains each permission in detail."));
   children.push(tipBox("Tip: You can always check or change these permissions later in System Settings \u2192 Privacy & Security."));
 
   // 1. Microphone
@@ -328,13 +328,25 @@ function buildContent() {
   children.push(...screenshotBlock("System Settings \u2192 Privacy & Security \u2192 Accessibility with HushType enabled"));
   children.push(tipBox("Without Accessibility access, HushType will still transcribe your speech, but it can only copy the result to your clipboard. It won\u2019t be able to type the text directly into your applications."));
 
+  // 3. App Management
+  children.push(heading("3. App Management (Recommended)", HeadingLevel.HEADING_2));
+  children.push(body("**What it does:** Allows HushType to install updates automatically via the built-in Sparkle update system. Without it, updates may be blocked by macOS in some configurations."));
+  children.push(body("**Why it\u2019s optional:** If HushType and its updates are signed by the same developer, macOS normally allows the update without this permission. However, edge cases can arise where macOS blocks an update. Granting App Management avoids this."));
+  children.push(body('**How to enable:** Click the **Setup\u2026** button next to App Management in the permissions window. This opens System Settings to Privacy & Security and displays guidance in the permissions window. Follow these steps:'));
+  children.push(body("**1. In System Settings, select Privacy & Security in the sidebar.**"));
+  children.push(body('**2. Scroll down the right-hand panel to find "App Management".**'));
+  children.push(body("**3. Click App Management and enable the toggle next to HushType.**"));
+  children.push(body("If HushType is not listed under App Management, it will appear automatically the next time an update is available."));
+  children.push(tipBox("App Management cannot be detected automatically, so the Setup\u2026 button always remains visible in the permissions window. The counter only tracks the two required permissions (Microphone and Accessibility)."));
+
   // Re-granting Accessibility
   children.push(heading("Re-granting Accessibility after updates", HeadingLevel.HEADING_3));
-  children.push(body("macOS revokes Accessibility permission whenever an app\u2019s code changes \u2014 which happens after every update. This is a macOS security measure, not a bug in HushType. After an update, HushType\u2019s permissions window will appear showing Accessibility as needing attention. The steps to re-grant it are:"));
+  children.push(body("macOS revokes Accessibility permission whenever an app\u2019s code changes \u2014 which happens after every update. This is a macOS security measure, not a bug in HushType. After an update, HushType\u2019s permissions window will appear showing Accessibility as needing attention."));
+  children.push(body("If a previous version of HushType is already in the Accessibility list, it must be removed and HushType must be restarted. This is because macOS caches the permission check when the app launches, and a restart is the only way for it to recognise the new entry. The permissions window will display a hint after a few seconds if it detects this situation, along with a **Restart HushType** button that handles the restart automatically. The steps are:"));
   children.push(body('**1. Open System Settings \u2192 Privacy & Security \u2192 Accessibility.**'));
-  children.push(body('**2. Select HushType in the list and click the "\u2212" (minus) button to remove it.**'));
-  children.push(body('**3. Click "+" and re-add HushType from your Applications folder.**'));
-  children.push(body("**4. Confirm the toggle is on.**"));
+  children.push(body('**2. Select the old HushType entry and click the "\u2212" (minus) button to remove it.**'));
+  children.push(body('**3. Click the Restart HushType button in the permissions window.**'));
+  children.push(body("**4. HushType will quit and relaunch. In the new permissions window, click Enable next to Accessibility and re-add HushType.**"));
   children.push(body("This only takes a few seconds and is a one-time step after each update. HushType detects when this has happened and will remind you."));
 
   // Permissions at a glance
@@ -389,6 +401,13 @@ function buildContent() {
             permCell("Manually add in System Settings", { colWidth: permColWidths[2] }),
           ],
         }),
+        new TableRow({
+          children: [
+            permCell("App Management", { bold: true, colWidth: permColWidths[0] }),
+            permCell("Updates may be blocked (recommended, not required)", { colWidth: permColWidths[1] }),
+            permCell("Setup\u2026 button \u2192 System Settings", { colWidth: permColWidths[2] }),
+          ],
+        }),
       ],
     })
   );
@@ -401,7 +420,6 @@ function buildContent() {
   children.push(body("**3. Speak clearly.**"));
   children.push(body("**4. Release the key.** Your words will be transcribed and typed at the cursor position."));
   children.push(body("A small floating overlay will appear at the top of your screen while recording, showing audio levels so you know your microphone is picking up your voice."));
-  children.push(body("By default, HushType uses real-time transcription: text begins appearing in your active application while you are still speaking, rather than waiting until you release the key. This means you get immediate feedback as you dictate. When you release the key, a final transcription pass runs over the complete audio and applies any corrections."));
 
   // --- The Menu Bar ---
   children.push(heading("The Menu Bar", HeadingLevel.HEADING_1));
@@ -426,7 +444,6 @@ function buildContent() {
   // Activation
   children.push(heading("Activation", HeadingLevel.HEADING_2));
   children.push(body("**Trigger key** \u2014 the modifier key you hold to start recording. Choose from Fn (the default), Control, or Option. The trigger key must be pressed alone; holding other modifier keys at the same time is ignored to prevent false triggers from keyboard shortcuts. Shift and Command are deliberately excluded because they conflict with too many system and application shortcuts."));
-  children.push(body("**Real-time transcription** \u2014 when enabled (the default), text is transcribed and typed into your active application while you are still speaking. Every two seconds, HushType takes a snapshot of the audio captured so far, transcribes it, and updates the text on screen. When you release the trigger key, a final pass corrects any remaining inaccuracies. When disabled, HushType waits until you release the key before transcribing and typing anything. Real-time mode requires Accessibility permission; if it is not granted, the app falls back to the standard (transcribe-on-release) behaviour."));
 
   // Whisper Model
   children.push(heading("Whisper Model", HeadingLevel.HEADING_2));
@@ -444,7 +461,6 @@ function buildContent() {
   children.push(body("This controls how HushType types the transcribed text into your active application. There are two methods:"));
   children.push(body("**Clipboard paste (\u2318V)** \u2014 the default and recommended method. HushType temporarily copies the text to your clipboard, simulates a Cmd+V paste, and then restores whatever was on your clipboard before. This handles all Unicode characters, punctuation, and special characters perfectly."));
   children.push(body("**Simulated keystrokes** \u2014 types each character individually by simulating keyboard events. This can feel more natural in some applications but is limited to the US keyboard layout and may miss certain symbols. Use this if clipboard paste causes issues in a particular application."));
-  children.push(tipBox("When real-time transcription is active, HushType always uses keystroke-based injection for the incremental updates (regardless of this setting), because it needs character-level control to correct text as it goes. This setting still applies when real-time mode is off."));
 
   // Audio Input
   children.push(heading("Audio Input", HeadingLevel.HEADING_2));
@@ -452,13 +468,14 @@ function buildContent() {
 
   // Display
   children.push(heading("Display", HeadingLevel.HEADING_2));
-  children.push(body("**Show recording overlay** \u2014 when enabled, a small floating indicator appears at the top of your screen during recording. It shows audio levels in real time and, in real-time mode, a preview of the transcription so far. The overlay never steals focus from your active application. Disable this if you find it distracting."));
+  children.push(body("**Show recording overlay** \u2014 when enabled, a small floating indicator appears at the top of your screen during recording. It shows audio levels so you can see that your microphone is picking up your voice. The overlay never steals focus from your active application. Disable this if you find it distracting."));
   children.push(body("**Menu bar icon** \u2014 choose between the custom HushType icon (the default) or a standard system microphone icon (SF Symbol). The HushType icon is designed to be easily distinguishable from Apple\u2019s own microphone icons that may appear in the menu bar."));
 
   // --- Automatic Updates ---
   children.push(heading("Automatic Updates", HeadingLevel.HEADING_1));
   children.push(body("HushType includes a built-in update mechanism powered by Sparkle. The app periodically checks for new versions in the background, and when one is available, it will prompt you to install it. Updates are downloaded and applied automatically \u2014 you just need to confirm when asked. You can also check for updates manually at any time by clicking the menu bar icon and selecting \u201CCheck for Updates\u2026\u201D."));
   children.push(body("All updates are cryptographically signed to ensure they are genuine and have not been tampered with. The update files are hosted on GitHub and verified before installation."));
+  children.push(tipBox("For the smoothest update experience, grant the App Management permission as described in the Setting Up Permissions section. This ensures macOS does not block HushType from installing updates."));
   children.push(body("**Remember:** after each update, macOS will require you to re-grant Accessibility permission (see the Setting Up Permissions section). HushType will remind you when this is needed."));
 
   // --- Troubleshooting ---
@@ -474,13 +491,10 @@ function buildContent() {
   children.push(body("Right-click the app in your Applications folder and choose **Open**. macOS may show a warning for apps downloaded outside the App Store. Clicking Open from the right-click menu bypasses Gatekeeper for that specific launch. You only need to do this once."));
 
   children.push(heading("Updates are failing", HeadingLevel.HEADING_2));
-  children.push(body("Make sure you have a working internet connection and try again from the menu bar: click the HushType icon and choose **Check for Updates**. If the update still fails, try downloading the latest version manually from the HushType website and replacing the app in your Applications folder."));
+  children.push(body("Make sure you have a working internet connection and try again from the menu bar: click the HushType icon and choose **Check for Updates**. If macOS is blocking the update, grant App Management permission in System Settings \u2192 Privacy & Security \u2192 App Management (see the Setting Up Permissions section). If the update still fails, download the latest version manually from the HushType website and replace the app in your Applications folder."));
 
   children.push(heading("Transcription is inaccurate or repeats phrases", HeadingLevel.HEADING_2));
   children.push(body('Try switching to a larger Whisper model in Settings (for example, from "small.en" to "medium.en" or "large-v3"). Larger models are significantly more accurate, especially with background noise, accents, or complex vocabulary. If you are speaking a language other than English, make sure the correct language is selected in Settings and that you are using a multilingual model (one without the ".en" suffix).'));
-
-  children.push(heading("Real-time text appears garbled or corrects itself frequently", HeadingLevel.HEADING_2));
-  children.push(body("This is normal behaviour in real-time mode. Each two-second transcription pass only has partial audio to work with, so words may shift or be revised as more context becomes available. The final transcription on key release uses the complete audio and is the most accurate. If you find the corrections distracting, you can disable real-time transcription in Settings \u2192 Activation."));
 
   // --- Footer ---
   children.push(
