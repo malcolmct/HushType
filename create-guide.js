@@ -23,7 +23,7 @@ const {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const VERSION = "Version 1.36";
+const VERSION = "Version 1.37";
 const CREATION_DATE = "9 February 2026";
 const OUTPUT_FILE = path.join(__dirname, "HushType-User-Guide.docx");
 const SCREENSHOT_DIR = path.join(__dirname, "docs", "screenshots");
