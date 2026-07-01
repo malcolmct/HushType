@@ -40,35 +40,35 @@ class TranscriptionEngine {
     /// The code is the Whisper language token (ISO 639-1). nil means auto-detect.
     static let supportedLanguages: [(code: String?, name: String)] = [
         (nil,   "Auto-detect"),
+        ("ar",  "Arabic"),
+        ("ca",  "Catalan"),
+        ("zh",  "Chinese"),
+        ("cs",  "Czech"),
+        ("da",  "Danish"),
+        ("nl",  "Dutch"),
         ("en",  "English"),
-        ("es",  "Spanish"),
+        ("fi",  "Finnish"),
         ("fr",  "French"),
         ("de",  "German"),
-        ("it",  "Italian"),
-        ("pt",  "Portuguese"),
-        ("nl",  "Dutch"),
-        ("ru",  "Russian"),
-        ("zh",  "Chinese"),
-        ("ja",  "Japanese"),
-        ("ko",  "Korean"),
-        ("ar",  "Arabic"),
-        ("hi",  "Hindi"),
-        ("tr",  "Turkish"),
-        ("pl",  "Polish"),
-        ("sv",  "Swedish"),
-        ("da",  "Danish"),
-        ("no",  "Norwegian"),
-        ("fi",  "Finnish"),
-        ("cs",  "Czech"),
         ("el",  "Greek"),
         ("he",  "Hebrew"),
-        ("th",  "Thai"),
-        ("vi",  "Vietnamese"),
-        ("id",  "Indonesian"),
-        ("uk",  "Ukrainian"),
-        ("ro",  "Romanian"),
+        ("hi",  "Hindi"),
         ("hu",  "Hungarian"),
-        ("ca",  "Catalan"),
+        ("id",  "Indonesian"),
+        ("it",  "Italian"),
+        ("ja",  "Japanese"),
+        ("ko",  "Korean"),
+        ("no",  "Norwegian"),
+        ("pl",  "Polish"),
+        ("pt",  "Portuguese"),
+        ("ro",  "Romanian"),
+        ("ru",  "Russian"),
+        ("es",  "Spanish"),
+        ("sv",  "Swedish"),
+        ("th",  "Thai"),
+        ("tr",  "Turkish"),
+        ("uk",  "Ukrainian"),
+        ("vi",  "Vietnamese"),
     ]
 
     /// The HuggingFace repo that hosts WhisperKit CoreML models.
@@ -465,7 +465,13 @@ class TranscriptionEngine {
     /// - Pass 3: Trailing phrase loop — a short phrase (1–4 words) repeating at the end
     ///   ("...went to the store the store the store" → "...went to the store")
     private func removeRepeatedPhrases(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // --- Pass 0: Strip non-speech annotation placeholders ---
+        // Runs before the length guard so short placeholders like "[MUSIC]" are
+        // also removed. If the whole transcription was a placeholder (e.g. the
+        // key was pressed with no speech), this leaves an empty string and the
+        // caller injects nothing.
+        let trimmed = removeNonSpeechAnnotations(text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 10 else { return trimmed }
 
         // --- Pass 1: Remove consecutive duplicate sentences ---
@@ -499,6 +505,73 @@ class TranscriptionEngine {
         )
 
         return result
+    }
+
+    /// Remove Whisper's non-speech annotation placeholders such as
+    /// `[BLANK_AUDIO]`, `[SILENCE]`, `[MUSIC]`, `(inaudible)`, `(applause)`, etc.
+    ///
+    /// Whisper emits these bracketed markers when the audio contains no speech or
+    /// only background sound (e.g. when the trigger key is pressed but nothing is
+    /// said). They are never something the user dictated, so they should never be
+    /// typed out.
+    ///
+    /// Strategy:
+    /// - Square-bracketed segments (`[ ... ]`) are stripped unconditionally —
+    ///   Whisper uses these exclusively for non-speech markers, and users
+    ///   practically never dictate literal square brackets.
+    /// - Parenthetical segments (`( ... )`) are stripped only when their contents
+    ///   match a known non-speech annotation keyword, so genuinely dictated
+    ///   parentheses are preserved.
+    private func removeNonSpeechAnnotations(_ text: String) -> String {
+        var result = text
+
+        // Strip all square-bracketed segments, e.g. "[BLANK_AUDIO]", "[ Silence ]".
+        result = result.replacingOccurrences(
+            of: "\\[[^\\]]*\\]",
+            with: "",
+            options: [.regularExpression]
+        )
+
+        // Keywords that mark a parenthetical as a non-speech annotation.
+        let annotationKeywords: Set<String> = [
+            "silence", "music", "applause", "laughter", "laughs", "laughing",
+            "inaudible", "noise", "background noise", "blank audio", "blank_audio",
+            "coughs", "coughing", "sighs", "sighing", "clears throat",
+            "throat clearing", "static", "beep", "beeping", "buzzing", "humming",
+            "no speech", "no audio", "speaking foreign language", "foreign",
+            "wind", "footsteps", "breathing", "crowd", "cheering",
+        ]
+
+        // Strip parentheticals only when their inner text matches an annotation keyword.
+        if let regex = try? NSRegularExpression(pattern: "\\(([^)]*)\\)") {
+            let ns = result as NSString
+            var output = ""
+            var lastEnd = 0
+            for match in regex.matches(in: result, range: NSRange(location: 0, length: ns.length)) {
+                let inner = ns.substring(with: match.range(at: 1))
+                    .lowercased()
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let isAnnotation = annotationKeywords.contains(inner)
+                    || annotationKeywords.contains(where: { inner.contains($0) })
+                if isAnnotation {
+                    // Append text before this parenthetical, skip the parenthetical itself.
+                    output += ns.substring(with: NSRange(location: lastEnd,
+                                                         length: match.range.location - lastEnd))
+                    lastEnd = match.range.location + match.range.length
+                }
+            }
+            output += ns.substring(from: lastEnd)
+            result = output
+        }
+
+        // Collapse any whitespace runs left behind by removed segments.
+        result = result.replacingOccurrences(
+            of: "\\s{2,}",
+            with: " ",
+            options: [.regularExpression]
+        )
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Split text into sentences on `.!?` boundaries, keeping delimiters attached.

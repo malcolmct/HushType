@@ -1,6 +1,10 @@
 import AppKit
 import AVFoundation
 
+extension Notification.Name {
+    static let allRequiredPermissionsGranted = Notification.Name("HushTypeAllRequiredPermissionsGranted")
+}
+
 /// Manages system permission checks and requests for microphone and accessibility access.
 class PermissionManager {
 
@@ -119,6 +123,27 @@ class PermissionManager {
     /// Open System Settings to the Accessibility pane (no custom alert).
     func openAccessibilitySettingsDirectly() {
         openAccessibilitySettings()
+    }
+
+    /// Open System Settings to the Privacy & Security pane (for App Management navigation).
+    /// There is no deep-link URL for the App Management section specifically,
+    /// so the user must scroll down to find it within Privacy & Security.
+    ///
+    /// If System Settings is already open (e.g. to the Accessibility pane from an
+    /// earlier click), we terminate it first so the URL opens to a fresh view.
+    func openPrivacySecuritySettings() {
+        let bundleIDs = ["com.apple.systempreferences", "com.apple.SystemSettings"]
+        var wasRunning = false
+        for id in bundleIDs {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: id) {
+                app.terminate()
+                wasRunning = true
+            }
+        }
+        let delay: TimeInterval = wasRunning ? 0.5 : 0.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            self.openSystemPreferences(to: "x-apple.systempreferences:com.apple.preference.security")
+        }
     }
 
     // MARK: - Alert Dialogs

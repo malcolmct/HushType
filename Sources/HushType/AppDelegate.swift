@@ -25,17 +25,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTranscribing = false
     private var recordingStartTime: Date?
 
-    // Real-time transcription state
-    private var realtimeTimer: Timer?
-    private var lastInjectedText: String = ""
-    private var lastFullTranscription: String = ""   // Previous tick's output, for stability checking
-    private var isRealtimeTranscribing = false
-
     /// Minimum recording duration in seconds — ignore very short key taps
     private let minimumRecordingDuration: TimeInterval = 0.3
-
-    /// Interval between real-time transcription passes (seconds)
-    private let realtimeTranscriptionInterval: TimeInterval = 2.0
 
     /// Short name of the current trigger key, for use in UI text.
     private var triggerKeyName: String {
@@ -71,6 +62,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         hotkeyManager.startListening()
+
+        // Hide the menu bar icon until all required permissions are granted
+        if !permissionManager.allPermissionsGranted() {
+            statusItem.isVisible = false
+        }
+
+        // Listen for the moment all required permissions are granted
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAllPermissionsGranted),
+            name: .allRequiredPermissionsGranted,
+            object: nil
+        )
 
         // Show permissions window if any required permission is missing
         showPermissionsWindowIfNeeded()
@@ -123,7 +127,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        stopRealtimeTimer()
         hotkeyManager?.stopListening()
         if isRecording {
             audioManager.stopRecording()
@@ -222,28 +225,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             recordingStartTime = Date()
             updateMenuBarIcon(recording: true)
             showRecordingOverlay()
-
-            let isRealtime = AppSettings.shared.useRealtimeTranscription
-                && permissionManager.hasAccessibilityPermission
-
-            if isRealtime {
-                // Start real-time transcription timer
-                lastInjectedText = ""
-                lastFullTranscription = ""
-                isRealtimeTranscribing = false
-                recordingOverlay?.updateState(.realtimeRecording)
-                recordingOverlay?.updateTranscriptionPreview("")
-                updateStartStopMenuItem(title: "Recording (real-time)… (release \(triggerKeyName) to stop)")
-
-                realtimeTimer = Timer.scheduledTimer(withTimeInterval: realtimeTranscriptionInterval, repeats: true) { [weak self] _ in
-                    self?.realtimeTranscriptionTick()
-                }
-
-                print("[HushType] Recording started (real-time mode)")
-            } else {
-                updateStartStopMenuItem(title: "Recording… (release \(triggerKeyName) to stop)")
-                print("[HushType] Recording started")
-            }
+            updateStartStopMenuItem(title: "Recording… (release \(triggerKeyName) to stop)")
+            print("[HushType] Recording started")
         } catch {
             print("[HushType] Failed to start recording: \(error)")
             showError("Failed to start recording: \(error.localizedDescription)")
@@ -253,9 +236,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func stopRecordingAndTranscribe() {
         guard isRecording else { return }
 
-        let wasRealtime = realtimeTimer != nil
-        stopRealtimeTimer()
-
         // Ignore very short recordings (trigger key bounce)
         if let start = recordingStartTime,
            Date().timeIntervalSince(start) < minimumRecordingDuration {
@@ -263,8 +243,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             audioManager.stopRecording()
             isRecording = false
             recordingStartTime = nil
-            lastInjectedText = ""
-            lastFullTranscription = ""
             updateMenuBarIcon(recording: false)
             updateStartStopMenuItem(title: "Hold \(triggerKeyName) to Dictate")
             hideRecordingOverlay()
@@ -279,7 +257,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if samples.isEmpty || samples.count < 8000 {
             // Less than 0.5s of audio at 16kHz — nothing worth transcribing
             print("[HushType] No meaningful audio captured — skipping transcription")
-            if wasRealtime { lastInjectedText = ""; lastFullTranscription = "" }
             updateStartStopMenuItem(title: "Hold \(triggerKeyName) to Dictate")
             hideRecordingOverlay()
             return
@@ -289,7 +266,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let rms = sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
         if rms < 0.001 {
             print("[HushType] Audio is silent — skipping transcription")
-            if wasRealtime { lastInjectedText = ""; lastFullTranscription = "" }
             updateStartStopMenuItem(title: "Hold \(triggerKeyName) to Dictate")
             hideRecordingOverlay()
             return
@@ -302,9 +278,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Update overlay to show transcribing state
         recordingOverlay?.updateState(.transcribing)
-
-        // Capture the text injected so far (for real-time final correction)
-        let previouslyInjected = wasRealtime ? lastInjectedText : ""
 
         Task {
             do {
@@ -321,36 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let finalText = withTrailingSpaces(trimmed)
 
                     if permissionManager.hasAccessibilityPermission {
-                        if wasRealtime {
-                            // Final correction: apply any remaining text not committed during real-time
-                            if trimmed != previouslyInjected {
-                                if previouslyInjected.isEmpty {
-                                    // Nothing was committed during real-time — inject the full text
-                                    // using normal injection (clipboard paste) for reliable formatting
-                                    textInjector.injectText(finalText)
-                                    print("[HushType] Final real-time: full text injected via paste")
-                                } else {
-                                    // Check if committed text still matches the start of the final transcription
-                                    let matchEnd = committedPrefixMatch(
-                                        committed: previouslyInjected, current: trimmed)
-                                    if matchEnd > 0 {
-                                        // Committed text matches — append the remainder via paste
-                                        let remaining = String(finalText.dropFirst(matchEnd))
-                                        if !remaining.isEmpty {
-                                            textInjector.injectText(remaining)
-                                        }
-                                        print("[HushType] Final real-time: appended remainder via paste")
-                                    } else {
-                                        // Committed text diverged — need incremental correction
-                                        textInjector.injectIncremental(
-                                            replacing: previouslyInjected, with: finalText)
-                                        print("[HushType] Final real-time: incremental correction applied")
-                                    }
-                                }
-                            }
-                        } else {
-                            textInjector.injectText(finalText)
-                        }
+                        textInjector.injectText(finalText)
                     } else {
                         // Fall back to copying to clipboard
                         NSPasteboard.general.clearContents()
@@ -363,8 +307,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 await MainActor.run {
                     isTranscribing = false
-                    lastInjectedText = ""
-                    lastFullTranscription = ""
                     updateStartStopMenuItem(title: "Hold \(triggerKeyName) to Dictate")
                     hideRecordingOverlay()
                 }
@@ -372,8 +314,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("[HushType] Transcription failed: \(error)")
                 await MainActor.run {
                     isTranscribing = false
-                    lastInjectedText = ""
-                    lastFullTranscription = ""
                     updateStartStopMenuItem(title: "Hold \(triggerKeyName) to Dictate")
                     hideRecordingOverlay()
                 }
@@ -381,152 +321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Real-time Transcription
-
-    /// Called by the repeating timer during real-time mode. Snapshots the current audio,
-    /// transcribes it, and appends any newly completed sentences.
-    ///
-    /// Committed-prefix append-only strategy:
-    /// 1. Each tick, check if the current transcription still begins with what we've
-    ///    already committed (word-level match, ignoring case/punctuation changes).
-    /// 2. If so, look for new complete sentences (ending with . ! ?) beyond the committed
-    ///    portion and append them immediately — no need to wait for a second tick.
-    /// 3. Never backspace or revise — only append. The overlay shows the full in-progress text.
-    /// 4. When recording stops, a final correction pass handles remaining text and any revisions.
-    private func realtimeTranscriptionTick() {
-        // Skip if a previous tick is still transcribing
-        guard !isRealtimeTranscribing else {
-            print("[HushType] Real-time tick skipped — previous transcription still running")
-            return
-        }
-
-        let samples = audioManager.getCurrentSamples()
-
-        // Wait for at least 1 second of audio (16000 samples at 16kHz)
-        guard samples.count >= 16000 else { return }
-
-        isRealtimeTranscribing = true
-
-        Task {
-            do {
-                let text = try await transcriptionEngine.transcribe(samples)
-                let trimmed = ensureDoubleSpaces(
-                    text.trimmingCharacters(in: .whitespacesAndNewlines))
-
-                await MainActor.run {
-                    // Always update the overlay preview with the full transcription
-                    recordingOverlay?.updateTranscriptionPreview(trimmed)
-
-                    if !trimmed.isEmpty {
-                        if lastInjectedText.isEmpty {
-                            // First commit: find complete sentences in the transcription
-                            let boundary = lastSentenceBoundary(in: trimmed)
-                            if boundary > 0 {
-                                let toCommit = String(trimmed.prefix(boundary))
-                                textInjector.injectText(toCommit)
-                                lastInjectedText = toCommit
-                                print("[HushType] Real-time first commit: \"\(toCommit)\"")
-                            }
-                        } else {
-                            // Subsequent commits: check if our committed text is still
-                            // at the start of the current transcription, then commit
-                            // any new complete sentences immediately.
-                            let matchEnd = committedPrefixMatch(
-                                committed: lastInjectedText, current: trimmed)
-                            if matchEnd > 0 {
-                                let remaining = String(trimmed.dropFirst(matchEnd))
-                                if !remaining.isEmpty {
-                                    let boundary = lastSentenceBoundary(in: remaining)
-                                    if boundary > 0 {
-                                        let toCommit = String(remaining.prefix(boundary))
-                                        textInjector.injectText(toCommit)
-                                        lastInjectedText += toCommit
-                                        print("[HushType] Real-time appended: \"\(toCommit)\"")
-                                    }
-                                }
-                            }
-                            // If match fails, Whisper revised earlier text.
-                            // We can't fix it during real-time — the final correction handles it.
-                        }
-                    }
-
-                    lastFullTranscription = trimmed
-                    isRealtimeTranscribing = false
-                }
-            } catch {
-                print("[HushType] Real-time transcription tick failed: \(error)")
-                await MainActor.run {
-                    isRealtimeTranscribing = false
-                }
-            }
-        }
-    }
-
-    /// Check if `current` starts with the same words as `committed`, ignoring case and
-    /// punctuation differences.  Returns the character offset in `current` right after the
-    /// last matched word (NOT including trailing spaces, so the remaining text preserves
-    /// inter-sentence spacing like double spaces after periods).
-    /// Returns 0 if the committed text doesn't match the start of the current transcription.
-    private func committedPrefixMatch(committed: String, current: String) -> Int {
-        let comWords = committed.split(separator: " ", omittingEmptySubsequences: true)
-        let curWords = current.split(separator: " ", omittingEmptySubsequences: true)
-
-        guard !comWords.isEmpty, curWords.count >= comWords.count else { return 0 }
-
-        // Every word in committed must match the corresponding word in current
-        for i in 0..<comWords.count {
-            let a = comWords[i].lowercased().trimmingCharacters(in: .punctuationCharacters)
-            let b = curWords[i].lowercased().trimmingCharacters(in: .punctuationCharacters)
-            if a != b { return 0 }
-        }
-
-        // Find the character offset right after the last committed word in current
-        var charOffset = 0
-        var wordsFound = 0
-        let chars = Array(current)
-        var idx = 0
-        while idx < chars.count && wordsFound < comWords.count {
-            // Skip spaces
-            while idx < chars.count && chars[idx] == " " { idx += 1 }
-            // Walk through the word
-            let wordStart = idx
-            while idx < chars.count && chars[idx] != " " { idx += 1 }
-            if idx > wordStart {
-                wordsFound += 1
-                charOffset = idx
-            }
-        }
-
-        // Do NOT include trailing spaces — they belong to the next commit,
-        // preserving double-space formatting between sentences.
-        return charOffset
-    }
-
-    /// Find the character count up to the end of the last complete sentence in the text.
-    /// A complete sentence ends with . ! or ? followed by whitespace or end-of-string.
-    /// Returns 0 if no sentence boundary is found.
-    private func lastSentenceBoundary(in text: String) -> Int {
-        let chars = Array(text)
-        var boundary = 0
-
-        for i in 0..<chars.count {
-            if ".!?".contains(chars[i]) {
-                if i == chars.count - 1 {
-                    // Punctuation at end of text — sentence is complete
-                    boundary = chars.count
-                } else if chars[i + 1] == " " {
-                    // Punctuation followed by space — skip trailing spaces
-                    var end = i + 1
-                    while end < chars.count && chars[end] == " " {
-                        end += 1
-                    }
-                    boundary = end
-                }
-            }
-        }
-
-        return boundary
-    }
+    // MARK: - Text Formatting Helpers
 
     /// Ensure exactly two spaces after every sentence-ending punctuation mark (. ! ?)
     /// that is followed by more text. Uses a simple character walk — no regex.
@@ -557,12 +352,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func withTrailingSpaces(_ text: String) -> String {
         guard let last = text.last, ".!?".contains(last) else { return text }
         return text + "  "
-    }
-
-    /// Stop the real-time transcription timer and clean up state.
-    private func stopRealtimeTimer() {
-        realtimeTimer?.invalidate()
-        realtimeTimer = nil
     }
 
     // MARK: - UI Updates
@@ -753,6 +542,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func menuToggleRecording() {
         toggleRecording()
+    }
+
+    @objc private func handleAllPermissionsGranted() {
+        statusItem.isVisible = true
     }
 
     @objc private func handleModelDidChange() {

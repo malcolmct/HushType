@@ -13,6 +13,7 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
         let title: String
         let description: String
         let enableAction: Selector
+        let buttonTitle: String       // "Enable" for required, "Setup…" for optional
     }
 
     // MARK: - Properties
@@ -24,12 +25,24 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
     // Row UI references (icon, title, desc are static; status area updates)
     private var statusViews: [(button: NSButton, checkImage: NSImageView, checkLabel: NSTextField)] = []
     private var counterLabel: NSTextField!
+
+    // Guidance area views (all hidden initially, positioned when shown)
     private var staleHintLabel: NSTextField?
+    private var restartButton: NSButton?
+    private var appMgmtGuidanceLabel: NSTextField?
 
     // Track how many poll cycles Accessibility has been not-granted after the user clicked Enable
     private var accessibilityEnableClickCount = 0
     private var accessibilityPollsSinceClick = 0
     private static let staleHintThreshold = 5  // Show hint after 5 seconds of polling post-click
+
+    // Guidance area expansion tracking — generalised so multiple guidance
+    // items (accessibility stale hint, App Management guidance) can coexist.
+    private var staleHintVisible = false
+    private var appMgmtGuidanceVisible = false
+    private var currentWindowGrowth: CGFloat = 0
+    private static let staleHintHeight: CGFloat = 120    // hint text + restart button + spacing
+    private static let appMgmtGuidanceHeight: CGFloat = 110 // guidance text + spacing
 
     // The permission rows to display (built dynamically based on relevance)
     private var rows: [PermissionRow] = []
@@ -41,13 +54,22 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
                 iconName: "mic.fill",
                 title: "Microphone",
                 description: "Record audio from your microphone for speech-to-text transcription.",
-                enableAction: #selector(enableMicrophone)
+                enableAction: #selector(enableMicrophone),
+                buttonTitle: "Enable"
             ),
             PermissionRow(
                 iconName: "hand.raised.fill",
                 title: "Accessibility",
                 description: "Type transcribed text directly into other applications.",
-                enableAction: #selector(enableAccessibility)
+                enableAction: #selector(enableAccessibility),
+                buttonTitle: "Enable"
+            ),
+            PermissionRow(
+                iconName: "arrow.triangle.2.circlepath",
+                title: "App Management",
+                description: "Allow automatic updates. Recommended but not required.",
+                enableAction: #selector(enableAppManagement),
+                buttonTitle: "Setup…"
             ),
         ]
     }
@@ -90,6 +112,8 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
         )
         window.title = "System Permissions"
         window.isReleasedWhenClosed = false
+        window.level = .floating               // Stay above normal windows
+        window.hidesOnDeactivate = false        // Stay visible when user switches to System Settings
         window.center()
 
         let content = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
@@ -194,15 +218,17 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
             // Status area (right side)
             let statusX = margin + availWidth - statusWidth - 8
 
-            // Enable button
-            let enableBtn = NSButton(title: "Enable", target: self, action: row.enableAction)
+            // Enable / Setup button
+            let enableBtn = NSButton(title: row.buttonTitle, target: self, action: row.enableAction)
             enableBtn.bezelStyle = .rounded
             enableBtn.controlSize = .regular
             enableBtn.frame = NSRect(x: statusX, y: rowY + (rowHeight - 28) / 2, width: 90, height: 28)
             enableBtn.keyEquivalent = ""
-            // Make the button blue
-            enableBtn.contentTintColor = .white
-            enableBtn.bezelColor = .controlAccentColor
+            // Blue accent for required permissions; default styling for optional
+            if row.buttonTitle == "Enable" {
+                enableBtn.contentTintColor = .white
+                enableBtn.bezelColor = .controlAccentColor
+            }
             content.addSubview(enableBtn)
 
             // Checkmark + "Enabled!" (hidden initially)
@@ -227,8 +253,8 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
 
         y = tableTop - totalRowsHeight - 20
 
-        // --- Counter ---
-        counterLabel = NSTextField(labelWithString: "0 of \(rows.count) Enabled")
+        // --- Counter (only counts required permissions: Microphone + Accessibility) ---
+        counterLabel = NSTextField(labelWithString: "0 of 2 Required")
         counterLabel.font = NSFont.systemFont(ofSize: 12)
         counterLabel.textColor = .secondaryLabelColor
         counterLabel.alignment = .center
@@ -244,17 +270,41 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
         content.addSubview(doneBtn)
 
         // --- Stale permission hint (hidden until needed, positioned when shown) ---
-        let hintText = "⚠ If Accessibility isn't being recognised, a previous version of HushType may already be in the Accessibility list. Open System Settings → Privacy & Security → Accessibility, select the old HushType entry and remove it using the \"−\" button at the lower left of the list, then click Enable above to re-add it."
+        let hintText = "⚠ If a previous version of HushType is already in the Accessibility list, it must be removed first. Open System Settings → Privacy & Security → Accessibility, select the old HushType entry and click \"−\" to remove it. Then click Restart below — a restart is needed for macOS to recognise the new permission."
         let hint = NSTextField(wrappingLabelWithString: hintText)
         hint.font = NSFont.systemFont(ofSize: 11)
         hint.textColor = .systemOrange
         hint.alignment = .left
         hint.maximumNumberOfLines = 0
         hint.preferredMaxLayoutWidth = availWidth
-        hint.frame = NSRect(x: margin, y: 0, width: availWidth, height: 54)
+        hint.frame = NSRect(x: margin, y: 0, width: availWidth, height: 70)
         hint.isHidden = true
         content.addSubview(hint)
         staleHintLabel = hint
+
+        // --- Restart button (hidden until hint is shown) ---
+        let restBtn = NSButton(title: "Restart HushType", target: self, action: #selector(restartApp))
+        restBtn.bezelStyle = .rounded
+        restBtn.controlSize = .regular
+        restBtn.frame = NSRect(x: margin, y: 0, width: 150, height: 30)
+        restBtn.contentTintColor = .white
+        restBtn.bezelColor = .systemOrange
+        restBtn.isHidden = true
+        content.addSubview(restBtn)
+        restartButton = restBtn
+
+        // --- App Management guidance (hidden until user clicks Setup…) ---
+        let guidanceText = "In the System Settings window, select Privacy & Security in the sidebar, then scroll down to find \"App Management\". Click it and enable the toggle next to HushType. If HushType isn't listed, it will appear the next time an update is available. Alternatively, you may click the plus button below the list, then select the HushType app from the Applications folder which will add it."
+        let guidance = NSTextField(wrappingLabelWithString: guidanceText)
+        guidance.font = NSFont.systemFont(ofSize: 11)
+        guidance.textColor = .secondaryLabelColor
+        guidance.alignment = .left
+        guidance.maximumNumberOfLines = 0
+        guidance.preferredMaxLayoutWidth = availWidth
+        guidance.frame = NSRect(x: margin, y: 0, width: availWidth, height: 60)
+        guidance.isHidden = true
+        content.addSubview(guidance)
+        appMgmtGuidanceLabel = guidance
 
         return window
     }
@@ -273,14 +323,16 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func refreshStatus() {
-        let statuses: [Bool] = [
+        // Only the first two rows (Microphone, Accessibility) are auto-detectable.
+        // The third row (App Management) has no public API to check — its Setup
+        // button always stays visible so the user can access the guidance.
+        let requiredStatuses: [Bool] = [
             permissionManager.hasMicrophonePermission,
             permissionManager.hasAccessibilityPermission,
         ]
 
-        let total = statuses.count
         var enabledCount = 0
-        for (index, granted) in statuses.enumerated() {
+        for (index, granted) in requiredStatuses.enumerated() {
             guard index < statusViews.count else { break }
             let views = statusViews[index]
             if granted {
@@ -295,48 +347,103 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
             }
         }
 
-        counterLabel?.stringValue = "\(enabledCount) of \(total) Enabled"
+        counterLabel?.stringValue = "\(enabledCount) of \(requiredStatuses.count) Required"
 
-        // If accessibility was just granted, record it and hide the hint
+        // Notify the app when all required permissions are granted
+        if enabledCount == requiredStatuses.count {
+            NotificationCenter.default.post(name: .allRequiredPermissionsGranted, object: nil)
+        }
+
+        // If accessibility was just granted, record it and hide the stale hint.
         if permissionManager.hasAccessibilityPermission {
             permissionManager.recordAccessibilityGranted()
-            staleHintLabel?.isHidden = true
             accessibilityPollsSinceClick = 0
+            if staleHintVisible {
+                staleHintVisible = false
+                updateGuidanceArea()
+            }
         } else if accessibilityEnableClickCount > 0 {
             // User has clicked Enable but Accessibility still isn't granted.
             // After a few seconds, show a hint about stale permission entries.
             accessibilityPollsSinceClick += 1
             if accessibilityPollsSinceClick >= Self.staleHintThreshold
-                && staleHintLabel?.isHidden == true {
-                // Grow the window to make room for the hint, then show it.
-                // In macOS's bottom-up coordinate system, growing the window
-                // downward shifts all existing content down on screen. To keep
-                // everything visually in place, move all existing subviews UP
-                // by the growth amount, then position the hint in the new space.
-                if let w = window, let contentView = w.contentView {
-                    let extraHeight: CGFloat = 70
-                    var frame = w.frame
-                    frame.size.height += extraHeight
-                    frame.origin.y -= extraHeight  // grow downward on screen
-                    w.setFrame(frame, display: true, animate: true)
+                && !staleHintVisible {
+                staleHintVisible = true
+                updateGuidanceArea()
+            }
+        }
+    }
 
-                    // Shift all existing subviews up so they stay visually in place
-                    for subview in contentView.subviews {
-                        if subview !== staleHintLabel {
-                            var f = subview.frame
-                            f.origin.y += extraHeight
-                            subview.frame = f
-                        }
-                    }
+    // MARK: - Guidance area management
 
-                    // Position the hint in the newly available space at the bottom
-                    let margin: CGFloat = 24
-                    let hintWidth = contentView.frame.width - margin * 2
-                    staleHintLabel?.frame = NSRect(
-                        x: margin, y: 8, width: hintWidth, height: 54)
-                    staleHintLabel?.isHidden = false
+    /// Calculate the total window growth needed for all visible guidance content.
+    private var neededWindowGrowth: CGFloat {
+        var h: CGFloat = 0
+        if staleHintVisible { h += Self.staleHintHeight }
+        if appMgmtGuidanceVisible { h += Self.appMgmtGuidanceHeight }
+        return h
+    }
+
+    /// Adjust the window size for guidance content and reposition all views.
+    ///
+    /// The guidance area lives at the very bottom of the window.  When it needs
+    /// to grow or shrink, the window frame changes and all non-guidance subviews
+    /// are shifted to keep them visually stable on screen.
+    private func updateGuidanceArea() {
+        let needed = neededWindowGrowth
+        let delta = needed - currentWindowGrowth
+
+        if delta != 0, let w = window, let contentView = w.contentView {
+            currentWindowGrowth = needed
+
+            // Resize window (positive delta = grow downward, negative = shrink upward)
+            var frame = w.frame
+            frame.size.height += delta
+            frame.origin.y -= delta
+            w.setFrame(frame, display: true, animate: true)
+
+            // Shift all non-guidance subviews so they stay visually in place
+            let guidanceSubviews: [NSView?] = [staleHintLabel, restartButton, appMgmtGuidanceLabel]
+            for subview in contentView.subviews {
+                if !guidanceSubviews.contains(where: { $0 === subview }) {
+                    var f = subview.frame
+                    f.origin.y += delta
+                    subview.frame = f
                 }
             }
+        }
+
+        layoutGuidanceContent()
+    }
+
+    /// Position all visible guidance views in the expanded area at the bottom.
+    /// Items are stacked from bottom to top: App Management guidance first
+    /// (at the very bottom), then the accessibility stale hint above it.
+    private func layoutGuidanceContent() {
+        guard let contentView = window?.contentView else { return }
+        let margin: CGFloat = 24
+        let guidanceWidth = contentView.frame.width - margin * 2
+        var y: CGFloat = 12  // start from bottom of window
+
+        // App Management guidance (at the very bottom if visible)
+        if appMgmtGuidanceVisible {
+            appMgmtGuidanceLabel?.frame = NSRect(x: margin, y: y, width: guidanceWidth, height: 60)
+            appMgmtGuidanceLabel?.isHidden = false
+            y += 68
+        } else {
+            appMgmtGuidanceLabel?.isHidden = true
+        }
+
+        // Accessibility stale hint + restart button (above App Management if both visible)
+        if staleHintVisible {
+            restartButton?.frame = NSRect(x: margin, y: y, width: 150, height: 30)
+            restartButton?.isHidden = false
+            y += 38
+            staleHintLabel?.frame = NSRect(x: margin, y: y, width: guidanceWidth, height: 70)
+            staleHintLabel?.isHidden = false
+        } else {
+            staleHintLabel?.isHidden = true
+            restartButton?.isHidden = true
         }
     }
 
@@ -352,6 +459,27 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
         permissionManager.openAccessibilitySettingsDirectly()
     }
 
+    @objc private func enableAppManagement() {
+        permissionManager.openPrivacySecuritySettings()
+        if !appMgmtGuidanceVisible {
+            appMgmtGuidanceVisible = true
+            updateGuidanceArea()
+        }
+    }
+
+    @objc private func restartApp() {
+        // AXIsProcessTrusted() is cached per-PID at launch — macOS will not
+        // recognise a newly-added Accessibility entry for an already-running
+        // process.  We must quit and relaunch so the new PID picks it up.
+        let bundlePath = Bundle.main.bundlePath
+        // Launch a shell process that waits for us to terminate, then reopens the app
+        Process.launchedProcess(
+            launchPath: "/bin/sh",
+            arguments: ["-c", "sleep 1 && open \"\(bundlePath)\""]
+        )
+        NSApp.terminate(nil)
+    }
+
     @objc private func doneClicked() {
         window?.close()
     }
@@ -361,5 +489,12 @@ class PermissionsWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         stopPolling()
         Self.retainedInstance = nil
+
+        // If the user closes the window before granting all required permissions,
+        // the app can't function — quit cleanly rather than sitting silently in
+        // the menu bar with no icon and no way to interact.
+        if !permissionManager.allPermissionsGranted() {
+            NSApp.terminate(nil)
+        }
     }
 }
