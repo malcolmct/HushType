@@ -2,8 +2,6 @@
 
 <img src="docs/screenshots/app-icon.png" alt="HushType icon" width="120">
 
-<img src="docs/screenshots/logo.png" alt="HushType" width="480">
-
 # HushType
 
 **Private, on-device speech-to-text dictation for macOS.**
