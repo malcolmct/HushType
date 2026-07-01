@@ -11,6 +11,7 @@ Hold a key, speak, release — your words are typed into whatever app you're usi
 [![Latest release](https://img.shields.io/github/v/release/malcolmct/HushType?label=download&sort=semver)](https://github.com/malcolmct/HushType/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14%2B-blue)](https://github.com/malcolmct/HushType/releases/latest)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2B-black)](https://github.com/malcolmct/HushType/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 [**⬇ Download**](https://github.com/malcolmct/HushType/releases/latest) &nbsp;·&nbsp; [**📖 User Guide**](HushType-User-Guide.pdf)
 
@@ -140,6 +141,6 @@ HushType is built on excellent open-source work:
 
 ## License
 
-© 2026 Malcolm Taylor. All rights reserved.
+HushType is released under the [MIT License](LICENSE) — you're free to use, copy, modify, and distribute it. © 2026 Malcolm Taylor.
 
-HushType bundles the open-source components listed above under their respective licenses; full license texts are shown in the app's **About** window.
+It also bundles the open-source components listed above under their respective licenses; full license texts are shown in the app's **About** window.
