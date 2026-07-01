@@ -1,6 +1,8 @@
 <div align="center">
 
-<img src="docs/screenshots/logo.png" alt="HushType" width="520">
+<img src="docs/screenshots/app-icon.png" alt="HushType icon" width="120">
+
+<img src="docs/screenshots/logo.png" alt="HushType" width="480">
 
 # HushType
 
@@ -11,6 +13,8 @@ Hold a key, speak, release — your words are typed into whatever app you're usi
 [![Latest release](https://img.shields.io/github/v/release/malcolmct/HushType?label=download&sort=semver)](https://github.com/malcolmct/HushType/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14%2B-blue)](https://github.com/malcolmct/HushType/releases/latest)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2B-black)](https://github.com/malcolmct/HushType/releases/latest)
+
+[**⬇ Download**](https://github.com/malcolmct/HushType/releases/latest) &nbsp;·&nbsp; [**📖 User Guide**](HushType-User-Guide.pdf)
 
 </div>
 
@@ -87,7 +91,7 @@ Open **Settings** from the menu bar icon to configure:
 - **Display** — toggle the recording overlay and choose the menu-bar icon style
 - **Start at login** — launch HushType automatically when you log in
 
-📖 A full [User Guide](HushType-User-Guide.pdf) is also included inside the DMG.
+📖 See the full [**User Guide**](HushType-User-Guide.pdf) for detailed walkthroughs of every option (also included inside the DMG).
 
 ## Automatic Updates
 
