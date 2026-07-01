@@ -81,7 +81,7 @@ class AboutWindowController {
 
         // MARK: - Copyright
         let copyrightLabel = NSTextField(frame: NSRect(x: 20, y: y - 18, width: windowWidth - 40, height: 18))
-        copyrightLabel.stringValue = "\u{00A9} 2026 Malcolm Taylor. All rights reserved."
+        copyrightLabel.stringValue = "\u{00A9} 2026 Malcolm Taylor \u{00B7} MIT License"
         copyrightLabel.isEditable = false
         copyrightLabel.isBordered = false
         copyrightLabel.backgroundColor = .clear
@@ -131,14 +131,27 @@ class AboutWindowController {
         contentView.addSubview(scrollView)
         y -= scrollHeight + 12
 
-        // MARK: - Website / link hint
+        // MARK: - Website / source link
+        // Clickable hyperlink to the project's GitHub page. Using an attributed
+        // string with a .link attribute on a selectable NSTextField makes the
+        // link open in the browser on click without needing a target/action.
+        let linkString = "View HushType on GitHub"
+        let linkURL = "https://github.com/malcolmct/HushType"
+        let attributed = NSMutableAttributedString(string: linkString)
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        attributed.addAttributes([
+            .link: linkURL,
+            .font: NSFont.systemFont(ofSize: 10),
+            .foregroundColor: NSColor.linkColor,
+        ], range: fullRange)
+
         let linkLabel = NSTextField(frame: NSRect(x: 20, y: y - 14, width: windowWidth - 40, height: 14))
-        linkLabel.stringValue = "Built with WhisperKit by Argmax, Inc."
         linkLabel.isEditable = false
         linkLabel.isBordered = false
+        linkLabel.isSelectable = true
+        linkLabel.allowsEditingTextAttributes = true
         linkLabel.backgroundColor = .clear
-        linkLabel.font = NSFont.systemFont(ofSize: 10)
-        linkLabel.textColor = .tertiaryLabelColor
+        linkLabel.attributedStringValue = attributed
         linkLabel.alignment = .center
         contentView.addSubview(linkLabel)
 

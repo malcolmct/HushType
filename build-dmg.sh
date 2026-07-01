@@ -138,6 +138,13 @@ elif [ -f "$USER_GUIDE_DOCX" ]; then
     echo "  Included: HushType User Guide.docx (PDF not found)"
 fi
 
+# Include the MIT license (as .txt so it opens in TextEdit on double-click)
+LICENSE_FILE="$SCRIPT_DIR/LICENSE"
+if [ -f "$LICENSE_FILE" ]; then
+    cp "$LICENSE_FILE" "$DMG_STAGING/LICENSE.txt"
+    echo "  Included: LICENSE.txt"
+fi
+
 # Note: the DMG background image is copied onto the mounted volume later
 # (not into staging) because Finder's AppleScript can't resolve hidden paths
 # that were baked in via hdiutil create -srcfolder.
@@ -205,10 +212,13 @@ tell application "Finder"
         set position of item "$APP_NAME.app" of container window to {140, 185}
         set position of item "Applications" of container window to {520, 185}
         try
-            set position of item "HushType User Guide.pdf" of container window to {330, 345}
+            set position of item "HushType User Guide.pdf" of container window to {250, 345}
         end try
         try
-            set position of item "HushType User Guide.docx" of container window to {330, 345}
+            set position of item "HushType User Guide.docx" of container window to {250, 345}
+        end try
+        try
+            set position of item "LICENSE.txt" of container window to {410, 345}
         end try
         close
         open
@@ -222,6 +232,7 @@ APPLESCRIPT
 chflags nohidden "$MOUNT_DIR/$APP_NAME.app"
 [ -f "$MOUNT_DIR/HushType User Guide.pdf" ] && chflags nohidden "$MOUNT_DIR/HushType User Guide.pdf"
 [ -f "$MOUNT_DIR/HushType User Guide.docx" ] && chflags nohidden "$MOUNT_DIR/HushType User Guide.docx"
+[ -f "$MOUNT_DIR/LICENSE.txt" ] && chflags nohidden "$MOUNT_DIR/LICENSE.txt"
 
 # Wait for .DS_Store to be flushed to disk
 sync
